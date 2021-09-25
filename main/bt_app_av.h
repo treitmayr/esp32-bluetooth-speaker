@@ -17,6 +17,12 @@
 #define BT_RC_TG_TAG            "RCTG"
 #define BT_RC_CT_TAG            "RCCT"
 
+extern uint8_t s_volume;
+#define VOLUME_EXP_RES 1024
+extern int32_t s_volume_exp;
+//extern int16_t pcm_max;
+//extern int16_t pcm_min;
+
 /**
  * @brief     callback function for A2DP sink
  */

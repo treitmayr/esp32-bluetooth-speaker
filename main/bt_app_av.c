@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "esp_log.h"
 
 #include "bt_app_core.h"
@@ -48,8 +49,13 @@ static const char *s_a2d_audio_state_str[] = {"Suspended", "Stopped", "Started"}
 static esp_avrc_rn_evt_cap_mask_t s_avrc_peer_rn_cap;
 static _lock_t s_volume_lock;
 static xTaskHandle s_vcs_task_hdl = NULL;
-static uint8_t s_volume = 0;
+uint8_t s_volume = 0;   // 127;
+int32_t s_volume_exp = 0;  // VOLUME_EXP_RES;
 static bool s_volume_notify;
+//int16_t pcm_max = 0;
+//int16_t pcm_min = 0;
+
+static void set_volume(uint8_t volume);
 
 /* callback for A2DP sink */
 void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
@@ -73,6 +79,9 @@ void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
     write_ringbuf(data, len);
     if (++s_pkt_cnt % 100 == 0) {
         ESP_LOGI(BT_AV_TAG, "Audio packet count %u", s_pkt_cnt);
+        //ESP_LOGI(BT_AV_TAG, "Audio packet count %u (min: %d, max: %d)", s_pkt_cnt, pcm_min, pcm_max);
+        //pcm_max = 0;
+        //pcm_min = 0;
     }
 }
 
@@ -248,8 +257,11 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
                  rc->conn_stat.connected, bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
 
         if (rc->conn_stat.connected) {
+            set_volume(0x7f / 4);
             // get remote supported event_ids of peer AVRCP Target
             esp_avrc_ct_send_get_rn_capabilities_cmd(APP_RC_CT_TL_GET_CAPS);
+            // query remote volume
+            //esp_avrc_ct_send_register_notification_cmd(1, ESP_AVRC_RN_VOLUME_CHANGE, 0);
         } else {
             // clear peer notification capability record
             s_avrc_peer_rn_cap.bits = 0;
@@ -268,6 +280,10 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
     case ESP_AVRC_CT_CHANGE_NOTIFY_EVT: {
         ESP_LOGI(BT_RC_CT_TAG, "AVRC event notification: %d", rc->change_ntf.event_id);
         bt_av_notify_evt_handler(rc->change_ntf.event_id, &rc->change_ntf.event_parameter);
+        if (rc->change_ntf.event_id == ESP_AVRC_RN_VOLUME_CHANGE) {
+            int volume = rc->change_ntf.event_parameter.volume;
+            ESP_LOGI(BT_RC_CT_TAG, "      volume %d", volume);
+        }
         break;
     }
     case ESP_AVRC_CT_REMOTE_FEATURES_EVT: {
@@ -289,20 +305,45 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
     }
 }
 
-static void volume_set_by_controller(uint8_t volume)
+static void set_volume(uint8_t volume)
 {
-    ESP_LOGI(BT_RC_TG_TAG, "Volume is set by remote controller %d%%\n", (uint32_t)volume * 100 / 0x7f);
+    // see https://www.dr-lex.be/info-stuff/volumecontrols.html
+    float ftemp = (float) volume / 0x7f;
+    const float fact = 20.0;
+    float fres = pow10f(log10f(fact) * ftemp) / fact;
+    int32_t ires = (int32_t)(fres * VOLUME_EXP_RES);
+    if (ires > VOLUME_EXP_RES) {
+        ires = VOLUME_EXP_RES;
+    }
+    if (volume == 0U) {
+        ires = 0;
+    }
     _lock_acquire(&s_volume_lock);
     s_volume = volume;
+    s_volume_exp = ires;
     _lock_release(&s_volume_lock);
+}
+
+static void volume_set_by_controller(uint8_t volume)
+{
+    ESP_LOGI(BT_RC_TG_TAG, "Volume is set by remote controller %d%%", (uint32_t)volume * 100 / 0x7f);
+    set_volume(volume);
+
+/*
+    if (s_volume_notify) {
+        // respond with the new volume
+        esp_avrc_rn_param_t rn_param;
+        rn_param.volume = volume;
+        esp_avrc_tg_send_rn_rsp(ESP_AVRC_RN_VOLUME_CHANGE, ESP_AVRC_RN_RSP_CHANGED, &rn_param);
+        s_volume_notify = false;
+    }
+*/
 }
 
 static void volume_set_by_local_host(uint8_t volume)
 {
     ESP_LOGI(BT_RC_TG_TAG, "Volume is set locally to: %d%%", (uint32_t)volume * 100 / 0x7f);
-    _lock_acquire(&s_volume_lock);
-    s_volume = volume;
-    _lock_release(&s_volume_lock);
+    set_volume(volume);
 
     if (s_volume_notify) {
         esp_avrc_rn_param_t rn_param;
@@ -335,7 +376,7 @@ static void bt_av_hdl_avrc_tg_evt(uint16_t event, void *p_param)
                  rc->conn_stat.connected, bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
         if (rc->conn_stat.connected) {
             // create task to simulate volume change
-            xTaskCreate(volume_change_simulation, "vcsT", 2048, NULL, 5, &s_vcs_task_hdl);
+            //xTaskCreate(volume_change_simulation, "vcsT", 2048, NULL, 5, &s_vcs_task_hdl);
         } else {
             vTaskDelete(s_vcs_task_hdl);
             ESP_LOGI(BT_RC_TG_TAG, "Stop volume change simulation");
@@ -352,12 +393,15 @@ static void bt_av_hdl_avrc_tg_evt(uint16_t event, void *p_param)
         break;
     }
     case ESP_AVRC_TG_REGISTER_NOTIFICATION_EVT: {
-        ESP_LOGI(BT_RC_TG_TAG, "AVRC register event notification: %d, param: 0x%x", rc->reg_ntf.event_id, rc->reg_ntf.event_parameter);
         if (rc->reg_ntf.event_id == ESP_AVRC_RN_VOLUME_CHANGE) {
+            ESP_LOGI(BT_RC_TG_TAG, "AVRC register event notification for volume change");
             s_volume_notify = true;
             esp_avrc_rn_param_t rn_param;
             rn_param.volume = s_volume;
             esp_avrc_tg_send_rn_rsp(ESP_AVRC_RN_VOLUME_CHANGE, ESP_AVRC_RN_RSP_INTERIM, &rn_param);
+        }
+        else {
+            ESP_LOGI(BT_RC_TG_TAG, "AVRC register event notification: %d, param: 0x%x", rc->reg_ntf.event_id, rc->reg_ntf.event_parameter);
         }
         break;
     }

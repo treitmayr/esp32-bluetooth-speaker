@@ -18,6 +18,8 @@
 #include "bt_app_core.h"
 #include "driver/i2s.h"
 #include "freertos/ringbuf.h"
+//add to see variable s_volume
+#include "bt_app_av.h"
 
 static void bt_app_task_handler(void *arg);
 static bool bt_app_send_msg(bt_app_msg_t *msg);
@@ -124,9 +126,19 @@ static void bt_i2s_task_handler(void *arg)
 
     for (;;) {
         data = (uint8_t *)xRingbufferReceive(s_ringbuf_i2s, &item_size, (portTickType)portMAX_DELAY);
-        if (item_size != 0){
+        if (item_size != 0) {
+            int16_t *pcmdata = (int16_t *)data;
+            for (int i=0; i<item_size/2; i++) {
+                int32_t temp = (int32_t)(*pcmdata);
+                temp = (temp * s_volume_exp) / VOLUME_EXP_RES;
+                temp = temp / 2;
+                *pcmdata = (int16_t)temp;
+                //if (*pcmdata > pcm_max) pcm_max = *pcmdata;
+                //if (*pcmdata < pcm_min) pcm_min = *pcmdata;
+                pcmdata++;
+            }
             i2s_write(0, data, item_size, &bytes_written, portMAX_DELAY);
-            vRingbufferReturnItem(s_ringbuf_i2s,(void *)data);
+            vRingbufferReturnItem(s_ringbuf_i2s, (void *)data);
         }
     }
 }
