@@ -356,6 +356,7 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
                  rc->conn_stat.connected, bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
 
         if (rc->conn_stat.connected) {
+            set_volume(0x7f / 3);
             /* get remote supported event_ids of peer AVRCP Target */
             esp_avrc_ct_send_get_rn_capabilities_cmd(APP_RC_CT_TL_GET_CAPS);
             // query remote volume
