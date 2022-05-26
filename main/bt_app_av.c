@@ -32,6 +32,8 @@
 #define APP_RC_CT_TL_RN_PLAYBACK_CHANGE  (3)
 #define APP_RC_CT_TL_RN_PLAY_POS_CHANGE  (4)
 
+#define INITIAL_VOLUME (0x7f / 2)
+
 /*******************************
  * STATIC FUNCTION DECLARATIONS
  ******************************/
@@ -87,8 +89,6 @@ static bool s_volume_notify;                 /* notify volume change or not */
 /********************************
  * STATIC FUNCTION DEFINITIONS
  *******************************/
-
-static void set_volume(uint8_t volume);
 
 static void bt_app_alloc_meta_buffer(esp_avrc_ct_cb_param_t *param)
 {
@@ -220,6 +220,11 @@ static void set_volume(uint8_t volume)
     s_volume = volume;
     s_volume_exp = ires;
     _lock_release(&s_volume_lock);
+}
+
+void set_initial_volume()
+{
+    set_volume(INITIAL_VOLUME);
 }
 
 static void volume_set_by_controller(uint8_t volume)
@@ -356,7 +361,6 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
                  rc->conn_stat.connected, bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
 
         if (rc->conn_stat.connected) {
-            set_volume(0x7f / 3);
             /* get remote supported event_ids of peer AVRCP Target */
             esp_avrc_ct_send_get_rn_capabilities_cmd(APP_RC_CT_TL_GET_CAPS);
             // query remote volume
@@ -364,6 +368,7 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
         } else {
             /* clear peer notification capability record */
             s_avrc_peer_rn_cap.bits = 0;
+            set_initial_volume();
         }
         break;
     }

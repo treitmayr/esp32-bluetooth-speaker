@@ -54,4 +54,6 @@ void bt_app_rc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param
  */
 void bt_app_rc_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param);
 
+void set_initial_volume();
+
 #endif /* __BT_APP_AV_H__*/
