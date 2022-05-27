@@ -16,11 +16,7 @@
 #define BT_RC_TG_TAG    "RC_TG"
 #define BT_RC_CT_TAG    "RC_CT"
 
-extern uint8_t s_volume;
-#define VOLUME_EXP_RES 1024
-extern int32_t s_volume_exp;
-//extern int16_t pcm_max;
-//extern int16_t pcm_min;
+#define BT_SBC_BITS_PER_SAMPLE   0x10 /* bit depth */
 
 /**
  * @brief  callback function for A2DP sink
@@ -53,7 +49,5 @@ void bt_app_rc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param
  * @param [in] param  callback parameter
  */
 void bt_app_rc_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param);
-
-void set_initial_volume();
 
 #endif /* __BT_APP_AV_H__*/

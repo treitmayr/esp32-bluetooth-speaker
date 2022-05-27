@@ -18,6 +18,7 @@
 #include "esp_bt.h"
 #include "bt_app_core.h"
 #include "bt_app_av.h"
+#include "bt_app_volume_control.h"
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
 #include "esp_gap_bt_api.h"
@@ -176,7 +177,7 @@ void app_main(void)
     pin_code[3] = '4';
     esp_bt_gap_set_pin(pin_type, 4, pin_code);
 
-    set_initial_volume();
+    bt_app_set_initial_volume();
 
     bt_app_task_start_up();
     /* bluetooth device name, connection mode and profile set up */

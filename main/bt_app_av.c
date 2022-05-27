@@ -13,6 +13,7 @@
 
 #include "bt_app_core.h"
 #include "bt_app_av.h"
+#include "bt_app_volume_control.h"
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
 #include "esp_gap_bt_api.h"
@@ -31,8 +32,6 @@
 #define APP_RC_CT_TL_RN_TRACK_CHANGE     (2)
 #define APP_RC_CT_TL_RN_PLAYBACK_CHANGE  (3)
 #define APP_RC_CT_TL_RN_PLAY_POS_CHANGE  (4)
-
-#define INITIAL_VOLUME (0x7f / 2)
 
 /*******************************
  * STATIC FUNCTION DECLARATIONS
@@ -81,10 +80,7 @@ static esp_avrc_rn_evt_cap_mask_t s_avrc_peer_rn_cap;
 static _lock_t s_volume_lock;
 static TaskHandle_t s_vcs_task_hdl = NULL;    /* handle for volume change simulation task */
 uint8_t s_volume = 0;   // 127;               /* local volume value */
-int32_t s_volume_exp = 0;  // VOLUME_EXP_RES;
 static bool s_volume_notify;                 /* notify volume change or not */
-//int16_t pcm_max = 0;
-//int16_t pcm_min = 0;
 
 /********************************
  * STATIC FUNCTION DEFINITIONS
@@ -202,36 +198,13 @@ void bt_i2s_driver_uninstall(void)
     i2s_driver_uninstall(0);
 }
 
-static void set_volume(uint8_t volume)
-{
-    // see https://www.dr-lex.be/info-stuff/volumecontrols.html
-    float ftemp = (float) volume / 0x7f;
-    const float fact = 20.0;
-    float fres = pow10f(log10f(fact) * ftemp) / fact;
-    int32_t ires = (int32_t)(fres * VOLUME_EXP_RES);
-    if (ires > VOLUME_EXP_RES) {
-        ires = VOLUME_EXP_RES;
-    }
-    if (volume == 0U) {
-        ires = 0;
-    }
-    /* set the volume in protection of lock */
-    _lock_acquire(&s_volume_lock);
-    s_volume = volume;
-    s_volume_exp = ires;
-    _lock_release(&s_volume_lock);
-}
-
-void set_initial_volume()
-{
-    set_volume(INITIAL_VOLUME);
-}
-
 static void volume_set_by_controller(uint8_t volume)
 {
     ESP_LOGI(BT_RC_TG_TAG, "Volume is set by remote controller to: %d%%", (uint32_t)volume * 100 / 0x7f);
-    set_volume(volume);
-
+    _lock_acquire(&s_volume_lock);
+    s_volume = volume;
+    _lock_release(&s_volume_lock);
+    bt_app_set_volume(volume);
 /*
     if (s_volume_notify) {
         // respond with the new volume
@@ -246,7 +219,9 @@ static void volume_set_by_controller(uint8_t volume)
 static void volume_set_by_local_host(uint8_t volume)
 {
     ESP_LOGI(BT_RC_TG_TAG, "Volume is set locally to: %d%%", (uint32_t)volume * 100 / 0x7f);
-    set_volume(volume);
+    _lock_acquire(&s_volume_lock);
+    s_volume = volume;
+    _lock_release(&s_volume_lock);
 
     /* send notification response to remote AVRCP controller */
     if (s_volume_notify) {
@@ -319,7 +294,7 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
             } else if (oct0 & (0x01 << 4)) {
                 sample_rate = 48000;
             }
-            i2s_set_clk(0, sample_rate, 16, 2);
+            i2s_set_clk(0, sample_rate, BT_SBC_BITS_PER_SAMPLE, 2);
 
             ESP_LOGI(BT_AV_TAG, "Configure audio player: %x-%x-%x-%x",
                      a2d->audio_cfg.mcc.cie.sbc[0],
@@ -368,7 +343,7 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
         } else {
             /* clear peer notification capability record */
             s_avrc_peer_rn_cap.bits = 0;
-            set_initial_volume();
+            bt_app_set_initial_volume();
         }
         break;
     }
@@ -415,6 +390,24 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
     }
 }
 
+static void bt_app_volume_sim_task_handler(bool create)
+{
+    #ifdef CONFIG_EXAMPLE_A2DP_ENABLE_VOLUME_SIMULATION_TASK
+        if (create) {
+            // create task to simulate volume change
+            xTaskCreate(volume_change_simulation, "vcsT", 2048, NULL, 5, &s_vcs_task_hdl);
+        } else {
+            vTaskDelete(s_vcs_task_hdl);
+            ESP_LOGI(BT_RC_TG_TAG, "Stop volume change simulation");
+        }
+    #else
+        // unused variables and functions.
+        (void) create;
+        (void) s_vcs_task_hdl;
+        (void) volume_change_simulation;
+    #endif
+}
+
 static void bt_av_hdl_avrc_tg_evt(uint16_t event, void *p_param)
 {
     ESP_LOGD(BT_RC_TG_TAG, "%s event: %d", __func__, event);
@@ -427,13 +420,8 @@ static void bt_av_hdl_avrc_tg_evt(uint16_t event, void *p_param)
         uint8_t *bda = rc->conn_stat.remote_bda;
         ESP_LOGI(BT_RC_TG_TAG, "AVRC conn_state evt: state %d, [%02x:%02x:%02x:%02x:%02x:%02x]",
                  rc->conn_stat.connected, bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
-        if (rc->conn_stat.connected) {
-            /* create task to simulate volume change */
-            /*xTaskCreate(volume_change_simulation, "vcsTask", 2048, NULL, 5, &s_vcs_task_hdl);*/
-        } else {
-            vTaskDelete(s_vcs_task_hdl);
-            ESP_LOGI(BT_RC_TG_TAG, "Stop volume change simulation");
-        }
+
+        bt_app_volume_sim_task_handler(rc->conn_stat.connected);
         break;
     }
     /* when passthrough commanded, this event comes */

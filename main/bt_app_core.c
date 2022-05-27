@@ -16,8 +16,8 @@
 #include "bt_app_core.h"
 #include "driver/i2s.h"
 #include "freertos/ringbuf.h"
-//add to see variable s_volume
-#include "bt_app_av.h"
+//#include "bt_app_av.h"
+#include "bt_app_volume_control.h"
 /*#include "led.h"*/
 
 /*******************************
@@ -102,16 +102,7 @@ static void bt_i2s_task_handler(void *arg)
         /* receive data from ringbuffer and write it to I2S DMA transmit buffer */
         data = (uint8_t *)xRingbufferReceive(s_ringbuf_i2s, &item_size, (TickType_t)portMAX_DELAY);
         if (item_size != 0){
-            int16_t *pcmdata = (int16_t *)data;
-            for (int i=0; i<item_size/2; i++) {
-                int32_t temp = (int32_t)(*pcmdata);
-                temp = (temp * s_volume_exp) / VOLUME_EXP_RES;
-                temp = temp / 2;
-                *pcmdata = (int16_t)temp;
-                //if (*pcmdata > pcm_max) pcm_max = *pcmdata;
-                //if (*pcmdata < pcm_min) pcm_min = *pcmdata;
-                pcmdata++;
-            }
+            bt_app_adjust_volume(data, item_size);
             i2s_write(0, data, item_size, &bytes_written, portMAX_DELAY);
             vRingbufferReturnItem(s_ringbuf_i2s, (void *)data);
         }
