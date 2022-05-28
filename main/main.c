@@ -19,6 +19,7 @@
 #include "bt_app_core.h"
 #include "bt_app_av.h"
 #include "bt_app_volume_control.h"
+#include "bt_app_ota.h"
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
 #include "esp_gap_bt_api.h"
@@ -136,6 +137,10 @@ void app_main(void)
         err = nvs_flash_init();
     }
     ESP_ERROR_CHECK(err);
+
+#ifdef CONFIG_EXAMPLE_OTA_ENABLE
+    try_ota_update(LOCAL_DEVICE_NAME);
+#endif
 
     /*
      * This example only uses the functions of Classical Bluetooth.

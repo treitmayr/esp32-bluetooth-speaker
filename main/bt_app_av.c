@@ -200,7 +200,7 @@ void bt_i2s_driver_uninstall(void)
 
 static void volume_set_by_controller(uint8_t volume)
 {
-    ESP_LOGI(BT_RC_TG_TAG, "Volume is set by remote controller to: %d%%", (uint32_t)volume * 100 / 0x7f);
+    ESP_LOGD(BT_RC_TG_TAG, "Volume is set by remote controller to: %d%%", (uint32_t)volume * 100 / 0x7f);
     _lock_acquire(&s_volume_lock);
     s_volume = volume;
     _lock_release(&s_volume_lock);

@@ -44,4 +44,33 @@ menu "A2DP Example Configuration"
         default n
         help
             The task increases the volume by 5 every 10 seconds
+
+    menu "OTA Firmware Upgrade"
+
+        config EXAMPLE_OTA_ENABLE
+            bool "Enable OTA firmware upgrade"
+            default n
+            select ESP_HTTP_CLIENT_ENABLE_HTTPS
+            select PARTITION_TABLE_TWO_OTA
+            help
+                The task increases the volume by 5 every 10 seconds
+
+        if EXAMPLE_OTA_ENABLE
+            config EXAMPLE_OTA_URL
+                string "OTA upgrade url endpoint"
+                depends on EXAMPLE_OTA_ENABLE
+                default "https://192.168.0.3:8070/hello-world.bin"
+                help
+                    URL of server which hosts the firmware
+                    image.
+
+            config EXAMPLE_OTA_SKIP_CN_CHECK
+                bool "Skip server certificate CN fieldcheck"
+                depends on EXAMPLE_OTA_ENABLE
+                default n
+                help
+                    This allows you to skip the validation of OTA server certificate CN field.
+        endif
+    endmenu
+
 endmenu

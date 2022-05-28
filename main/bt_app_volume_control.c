@@ -21,7 +21,8 @@
 #define MAX_VOLUME (VOLUME_LEVELS - 1)
 //#define VOLUME_SCALE_VAL 16     // just too loud for my speaker
 #define VOLUME_SCALE_VAL 17
-#define INITIAL_VOLUME (MAX_VOLUME / 2)
+//#define INITIAL_VOLUME (MAX_VOLUME / 2)
+#define INITIAL_VOLUME MAX_VOLUME
 
 // precalculated constants.
 // min_db = -51, max_db= 0; volume_level_max = 127, VOLUME_SCALE_VAL = 16
