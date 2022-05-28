@@ -21,7 +21,7 @@
 #define MAX_VOLUME (VOLUME_LEVELS - 1)
 //#define VOLUME_SCALE_VAL 16     // just too loud for my speaker
 #define VOLUME_SCALE_VAL 17
-#define INITIAL_VOLUME (MAX_VOLUME / 2)
+#define INITIAL_VOLUME MAX_VOLUME
 
 // precalculated constants.
 // min_db = -51, max_db= 0; volume_level_max = 127, VOLUME_SCALE_VAL = 16
@@ -47,14 +47,13 @@ static const uint16_t gain_presets[VOLUME_LEVELS] = {
 0xb0da, 0xb938, 0xc1fc, 0xcb29, 0xd4c6, 0xded8, 0xe963, 0xffff,
 };
 
-// if the volume is not set by host, the input stream will not be modified.
-int32_t volume = VOLUME_LEVELS / 2;
+// if the volume is not set by host, use this volume.
+int32_t volume = INITIAL_VOLUME;
 
 void bt_app_set_initial_volume()
 {
     bt_app_set_volume(INITIAL_VOLUME);
 }
-
 
 void bt_app_set_volume(uint32_t level)
 {
@@ -66,16 +65,18 @@ void bt_app_set_volume(uint32_t level)
 
 void bt_app_adjust_volume(uint8_t *data, size_t size)
 {
-    if (volume < MAX_VOLUME)
+    size_t items = size / (BT_SBC_BITS_PER_SAMPLE / 8); // 8 is bits per byte.
+    int16_t* ptr = (int16_t*) data;
+    const uint16_t gain = gain_presets[volume];
+    while(items--)
     {
-        size_t items = size / (BT_SBC_BITS_PER_SAMPLE / 8); // 8 is bits per byte.
-        int16_t* ptr = (int16_t*) data;
-        const uint16_t gain = gain_presets[volume];
-        while(items--)
+        int32_t fraction = (int32_t)*ptr;
+        if (volume < MAX_VOLUME)
         {
-            int32_t fraction = (int32_t)(*ptr * gain) >> VOLUME_SCALE_VAL;
-            *ptr = (int16_t)fraction;
-            ptr++;
+            fraction = (fraction * gain) >> VOLUME_SCALE_VAL;
         }
+        fraction >>= 1;       /* otherwise it is too loud for my speaker */
+        *ptr = (int16_t)fraction;
+        ptr++;
     }
 }
