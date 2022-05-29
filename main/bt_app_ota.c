@@ -1,3 +1,6 @@
+#include "sdkconfig.h"
+#ifdef CONFIG_EXAMPLE_OTA_ENABLE
+
 #include "string.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -44,7 +47,7 @@ static void _wifi_event_handler(void* arg, esp_event_base_t event_base,
     {
         if (event_id == WIFI_EVENT_STA_START)
         {
-        tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, "thermostat");
+        tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, wifi_hostname);
         esp_wifi_connect();
         wifi_connected = false;
         }
@@ -220,7 +223,6 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-
 static void contact_ota_server()
 {
     ESP_LOGI(TAG, "Trying to contact OTA server at " CONFIG_EXAMPLE_OTA_URL);
@@ -246,6 +248,9 @@ static void contact_ota_server()
 
 void try_ota_update(const char *hostname)
 {
+    char *hn;
+    const char *src;
+    char *dst;
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     /* initialize wifi */
@@ -254,8 +259,29 @@ void try_ota_update(const char *hostname)
         set_wifi_credentials((const char *)wifi_credentials_txt_start,
                              wifi_credentials_txt_end - wifi_credentials_txt_start);
     }
-    wifi_start(hostname);
+
+    /* create a filtered version of the name */
+    hn = malloc(strlen(hostname) + 1);
+    src = hostname;
+    dst = hn;
+    while (*src)
+    {
+        if (*src == '-' || *src == '_' ||
+            (*src >= '0' && *src <= '9') ||
+            (*src >= 'A' && *src <= 'Z') ||
+            (*src >= 'a' && *src <= 'Z'))
+        {
+            *dst = *src;
+            dst += 1;
+        }
+        src += 1;
+    }
+
+    wifi_start(hn);
     contact_ota_server();
     wifi_stop();
+
+    free(hn);
 }
 
+#endif /* CONFIG_EXAMPLE_OTA_ENABLE */

@@ -1,5 +1,8 @@
 #pragma once
 
+#include "sdkconfig.h"
+#ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
+
 #include <stdint.h>
 
 /*
@@ -16,3 +19,5 @@ void bt_app_set_initial_volume();
 * Changes an input data according to volume level. 
 */
 void bt_app_adjust_volume(uint8_t *data, size_t size);
+
+#endif /* CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE */

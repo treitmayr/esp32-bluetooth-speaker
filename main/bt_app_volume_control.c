@@ -12,6 +12,9 @@
  * input_signal = (input_signal * constant) >> VOLUME_SCALE_VAL
  */
 
+#include "sdkconfig.h"
+#ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
+
 #include <stdint.h>
 #include "bt_app_av.h"
 #include "bt_app_volume_control.h"
@@ -80,3 +83,5 @@ void bt_app_adjust_volume(uint8_t *data, size_t size)
         ptr++;
     }
 }
+
+#endif /* CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE */

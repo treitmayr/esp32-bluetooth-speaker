@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
 
+#include "sdkconfig.h"
+#ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
+
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
@@ -188,3 +191,5 @@ size_t write_ringbuf(const uint8_t *data, size_t size)
 
     return done ? size : 0;
 }
+
+#endif /* CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE */

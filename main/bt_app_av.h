@@ -7,6 +7,9 @@
 #ifndef __BT_APP_AV_H__
 #define __BT_APP_AV_H__
 
+#include "sdkconfig.h"
+#ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
+
 #include <stdint.h>
 #include "esp_a2dp_api.h"
 #include "esp_avrc_api.h"
@@ -50,4 +53,5 @@ void bt_app_rc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param
  */
 void bt_app_rc_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param);
 
+#endif /* CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE */
 #endif /* __BT_APP_AV_H__*/

@@ -139,7 +139,10 @@ CONFIG_EXAMPLE_I2S_DATA_PIN=22
 #
 # OTA Firmware Update
 #
-# CONFIG_EXAMPLE_OTA_ENABLE is not set
+CONFIG_EXAMPLE_OTA_ENABLE=y
+CONFIG_EXAMPLE_OTA_URL="http://update-server/esp32-bluetooth-speaker.bin"
+CONFIG_EXAMPLE_OTA_SKIP_CN_CHECK=y
+# CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE is not set
 # end of OTA Firmware Update
 # end of A2DP Example Configuration
 

@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
 
+#include "sdkconfig.h"
+#ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -528,3 +531,5 @@ void bt_app_rc_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param
         break;
     }
 }
+
+#endif /* CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE */

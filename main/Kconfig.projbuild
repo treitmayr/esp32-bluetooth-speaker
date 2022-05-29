@@ -45,15 +45,15 @@ menu "A2DP Example Configuration"
         help
             The task increases the volume by 5 every 10 seconds
 
-    menu "OTA Firmware Upgrade"
+    menu "OTA Firmware Update"
 
         config EXAMPLE_OTA_ENABLE
-            bool "Enable OTA firmware upgrade"
+            bool "Enable OTA firmware update"
             default n
             # select ESP_HTTP_CLIENT_ENABLE_HTTPS
             # select PARTITION_TABLE_TWO_OTA
             help
-                The task increases the volume by 5 every 10 seconds
+                This enables OTA updates
 
         if EXAMPLE_OTA_ENABLE
             config EXAMPLE_OTA_URL
@@ -70,6 +70,14 @@ menu "A2DP Example Configuration"
                 default n
                 help
                     This allows you to skip the validation of OTA server certificate CN field.
+
+            config EXAMPLE_BUILD_FACTORY_IMAGE
+                bool "Build the factory image (instead of the BT speaker app)"
+                default n
+                help
+                    Enabling this will build a rudimentary factory image
+                    instead of the Bluetooth speaker application.
+
         endif
     endmenu
 

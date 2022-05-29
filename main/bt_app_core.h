@@ -7,6 +7,9 @@
 #ifndef __BT_APP_CORE_H__
 #define __BT_APP_CORE_H__
 
+#include "sdkconfig.h"
+#ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -85,4 +88,5 @@ void bt_i2s_task_shut_down(void);
  */
 size_t write_ringbuf(const uint8_t *data, size_t size);
 
+#endif /* CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE */
 #endif /* __BT_APP_CORE_H__ */

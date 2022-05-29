@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
 
+#include "sdkconfig.h"
+#ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -188,3 +191,5 @@ void app_main(void)
     /* bluetooth device name, connection mode and profile set up */
     bt_app_work_dispatch(bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, NULL, 0, NULL);
 }
+
+#endif /* CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE */
