@@ -50,8 +50,8 @@ menu "A2DP Example Configuration"
         config EXAMPLE_OTA_ENABLE
             bool "Enable OTA firmware upgrade"
             default n
-            select ESP_HTTP_CLIENT_ENABLE_HTTPS
-            select PARTITION_TABLE_TWO_OTA
+            # select ESP_HTTP_CLIENT_ENABLE_HTTPS
+            # select PARTITION_TABLE_TWO_OTA
             help
                 The task increases the volume by 5 every 10 seconds
 
