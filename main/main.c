@@ -13,6 +13,7 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_event.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "esp_system.h"
@@ -140,6 +141,8 @@ void app_main(void)
         err = nvs_flash_init();
     }
     ESP_ERROR_CHECK(err);
+
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
 
 #ifdef CONFIG_EXAMPLE_OTA_ENABLE
     try_ota_update(LOCAL_DEVICE_NAME);
