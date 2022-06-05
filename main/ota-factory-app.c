@@ -1,12 +1,9 @@
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_system.h"
+#include "sdkconfig.h"
+#ifdef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
+
 #include "esp_event.h"
-#include "esp_log.h"
 #include "nvs.h"
 #include "nvs_flash.h"
-
-#ifdef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
 
 #include "bt_app_ota.h"
 
@@ -27,12 +24,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    for( ;; )
-    {
-        try_ota_update("speaker-factory-updater");
-        // retry after one minute
-        vTaskDelay(60000 / portTICK_PERIOD_MS);
-    }
+    try_ota_update("factory-updater", "BT-A2DP-Sink", CONFIG_EXAMPLE_OTA_URL);
 }
 
 #endif  // #ifdef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE

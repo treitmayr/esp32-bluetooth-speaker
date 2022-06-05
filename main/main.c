@@ -145,7 +145,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
 #ifdef CONFIG_EXAMPLE_OTA_ENABLE
-    try_ota_update(LOCAL_DEVICE_NAME);
+    try_ota_update(LOCAL_DEVICE_NAME, "BT-A2DP-Sink", CONFIG_EXAMPLE_OTA_URL);
 #endif
 
     /*

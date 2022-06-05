@@ -1,0 +1,27 @@
+menu "Syslog Client"
+
+config SYSLOG_HOST
+    string "Syslog Host Address"
+    default ""
+    help
+        Host name or IP address to send log output to.
+
+config SYSLOG_PORT
+    int "Syslog Port Number"
+    default 514
+    help
+        UDP port to send log output to.
+
+config SYSLOG_SEND_RAW
+    bool "Send raw data instead of syslog messages"
+    default n
+    help
+        Select to send raw data instead of syslog messages.
+
+config SYSLOG_COPY_SERIAL
+    bool "Copy messages to serial console"
+    default y
+    help
+        Select to print a copy of all messages to the serial console.
+
+endmenu

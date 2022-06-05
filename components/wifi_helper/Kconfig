@@ -1,0 +1,14 @@
+menu "Wi-Fi Helper"
+
+config WIFI_HELPER_CREDENTIALS_SYMBOL
+    string "External symbol providing Wi-Fi credientials"
+    default "wifi_credentials_txt"
+    help
+        External symbol corresponding to the embedded file holding Wi-Fi credentials.
+
+        Example: File name "wifi_credentials.txt" -> symbol name "wifi_credentials_txt"
+
+        The file format is "<SSID> <passphrase>", where one or more whitespaces are used to
+        delimit the two words.
+
+endmenu

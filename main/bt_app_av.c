@@ -150,7 +150,7 @@ static void bt_av_notify_evt_handler(uint8_t event_id, esp_avrc_rn_param_t *even
         break;
     /* when track playing position changed, this event comes */
     case ESP_AVRC_RN_PLAY_POS_CHANGED:
-        ESP_LOGI(BT_AV_TAG, "Play position changed: %d-ms", event_parameter->play_pos);
+        ESP_LOGI(BT_AV_TAG, "Play position changed: %d ms", event_parameter->play_pos);
         bt_av_play_pos_changed();
         break;
     /* others */
@@ -363,11 +363,11 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
     }
     /* when notified, this event comes */
     case ESP_AVRC_CT_CHANGE_NOTIFY_EVT: {
-        ESP_LOGI(BT_RC_CT_TAG, "AVRC event notification: %d", rc->change_ntf.event_id);
+        ESP_LOGD(BT_RC_CT_TAG, "AVRC event notification: %d", rc->change_ntf.event_id);
         bt_av_notify_evt_handler(rc->change_ntf.event_id, &rc->change_ntf.event_parameter);
         if (rc->change_ntf.event_id == ESP_AVRC_RN_VOLUME_CHANGE) {
             int volume = rc->change_ntf.event_parameter.volume;
-            ESP_LOGI(BT_RC_CT_TAG, "      volume %d", volume);
+            ESP_LOGD(BT_RC_CT_TAG, "      volume %d", volume);
         }
         break;
     }
@@ -488,7 +488,7 @@ void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
 
     /* log the number every 100 packets */
     if (++s_pkt_cnt % 100 == 0) {
-        ESP_LOGI(BT_AV_TAG, "Audio packet count: %u", s_pkt_cnt);
+        ESP_LOGD(BT_AV_TAG, "Audio packet count: %u", s_pkt_cnt);
         //ESP_LOGI(BT_AV_TAG, "Audio packet count %u (min: %d, max: %d)", s_pkt_cnt, pcm_min, pcm_max);
         //pcm_max = 0;
         //pcm_min = 0;
