@@ -6,9 +6,20 @@
 #include <stdint.h>
 
 /*
-* Sets volume. Allowed range is  0-127
+* Initializes volume control data structures.
+* Allowed dB values in the range of -96 to 0.
+*/
+void bt_app_vc_initialize(float min_db, float max_db, bool level0_mute);
+
+/*
+* Sets volume. Allowed range is 0-127
 */
 void bt_app_set_volume(uint32_t level);
+
+/*
+* Gets volume (range 0-127)
+*/
+uint32_t bt_app_get_volume(void);
 
 /*
 * Sets initial volume.

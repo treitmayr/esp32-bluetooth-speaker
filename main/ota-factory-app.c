@@ -27,4 +27,4 @@ void app_main(void)
     try_ota_update("factory-updater", "BT-A2DP-Sink", CONFIG_EXAMPLE_OTA_URL);
 }
 
-#endif  // #ifdef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
+#endif  /* #ifdef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE */

@@ -7,8 +7,8 @@
  * In order to avoit the floating point calculation, the constant is multiplied by some value 
  * and then during input signal proccessing, the constant is restored back. 
  * So the last equation will look like below:
- * constant = (pow(10.0, constant / 20.0) * (double) 1 << VOLUME_SCALE_VAL;
- * 
+ * constant = (pow(10.0, constant / 20.0) * VOLUME_SCALE_VAL;
+ *
  * input_signal = (input_signal * constant) >> VOLUME_SCALE_VAL
  */
 
@@ -16,42 +16,99 @@
 #ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
 
 #include <stdint.h>
+#include <limits.h>
+#include <math.h>
 #include "bt_app_av.h"
 #include "bt_app_volume_control.h"
 #include "esp_log.h"
+#include "esp_system.h"
 
-#define VOLUME_LEVELS 128 // volume is adjusted from 0 to 127 levels
-#define MAX_VOLUME (VOLUME_LEVELS - 1)
-//#define VOLUME_SCALE_VAL 16     // just too loud for my speaker
-#define VOLUME_SCALE_VAL 17
-#define INITIAL_VOLUME MAX_VOLUME
 
-// precalculated constants.
-// min_db = -51, max_db= 0; volume_level_max = 127, VOLUME_SCALE_VAL = 16
-// for some reason, vol_level = 0 does not mute the sound, 
-// so the 0x0000 is added at pos 0 and all indices are shifted by 1;
+#define VOLUME_LEVELS 128
+#define VOLUME_LEVEL_MAX (VOLUME_LEVELS - 1)
+#define INITIAL_VOLUME VOLUME_LEVEL_MAX
 
-static const uint16_t gain_presets[VOLUME_LEVELS] = {
-0x0000/*was 0x00b8*/, 0x00b8, 0x00c1, 0x00ca, 0x00d4, 0x00de, 0x00e8, 0x00f3,
-0x00ff, 0x010b, 0x0118, 0x0125, 0x0133, 0x0141, 0x0150, 0x0160,
-0x0171, 0x0183, 0x0195, 0x01a8, 0x01bc, 0x01d1, 0x01e7, 0x01fe,
-0x0216, 0x0230, 0x024a, 0x0266, 0x0283, 0x02a2, 0x02c1, 0x02e3,
-0x0306, 0x032a, 0x0351, 0x0379, 0x03a3, 0x03cf, 0x03fd, 0x042e,
-0x0460, 0x0495, 0x04cd, 0x0507, 0x0544, 0x0584, 0x05c7, 0x060d,
-0x0656, 0x06a3, 0x06f3, 0x0747, 0x07a0, 0x07fc, 0x085d, 0x08c2,
-0x092c, 0x099b, 0x0a10, 0x0a8a, 0x0b09, 0x0b8f, 0x0c1b, 0x0cae,
-0x0d47, 0x0de8, 0x0e91, 0x0f41, 0x0ffa, 0x10bb, 0x1186, 0x125a,
-0x1339, 0x1422, 0x1515, 0x1615, 0x1720, 0x1839, 0x195e, 0x1a91,
-0x1bd3, 0x1d24, 0x1e85, 0x1ff7, 0x217a, 0x2310, 0x24b8, 0x2675,
-0x2847, 0x2a2f, 0x2c2e, 0x2e45, 0x3076, 0x32c1, 0x3528, 0x37ac,
-0x3a4e, 0x3d10, 0x3ff4, 0x42fb, 0x4626, 0x4978, 0x4cf2, 0x5096,
-0x5466, 0x5865, 0x5c93, 0x60f5, 0x658b, 0x6a5a, 0x6f62, 0x74a7,
-0x7a2c, 0x7ff4, 0x8602, 0x8c59, 0x92fe, 0x99f2, 0xa13b, 0xa8dc,
-0xb0da, 0xb938, 0xc1fc, 0xcb29, 0xd4c6, 0xded8, 0xe963, 0xffff,
-};
+#define VOLUME_SCALE_BITS 15
+#define VOLUME_SCALE_VAL (1 << VOLUME_SCALE_BITS)
 
-// if the volume is not set by host, use this volume.
+#define NOISE_SAMPLE_COUNT 2000
+
+static const char *TAG = "VOLCTL";
+
+static uint16_t gain_presets[VOLUME_LEVELS];
+static int16_t noise[NOISE_SAMPLE_COUNT];
+
+/* if the volume is not set by host, use this volume. */
 int32_t volume = INITIAL_VOLUME;
+
+extern esp_log_level_t esp_log_level_get(const char *tag);
+
+void generate_triangular_pdf_noise()
+{
+    ESP_LOGD(TAG, "Generating %d samples of triangular PDF noise", NOISE_SAMPLE_COUNT);
+
+    esp_fill_random((void *) noise, sizeof(noise));
+    const int16_t first = noise[0];
+    int16_t s2 = noise[0] / 2;
+    const int16_t int16_min = -2 * ((int16_t) 1 << (sizeof(int16_t) * 8 - 2));
+    for (unsigned int idx = 0; idx < NOISE_SAMPLE_COUNT; idx++)
+    {
+        const int16_t s1 = s2;
+        s2 = (idx < (NOISE_SAMPLE_COUNT - 1)) ? noise[idx + 1] : first;
+        s2 /= 2;
+        int16_t diff = s2 - s1;
+        /* do NOT include the lowest value of int16_t */
+        if (diff == int16_min)
+        {
+            diff += 1;
+        }
+        /* scale down random value to match volume resolution */
+        if (VOLUME_SCALE_BITS < 15)
+        {
+            diff /= 1 << (15 - VOLUME_SCALE_BITS);
+        }
+        noise[idx] = diff;
+    }
+    /* DEBUG: Check the distribution of noise values:
+    uint16_t count[16] = {0};
+    const int slots = sizeof(count)/sizeof(count[0]);
+    for (unsigned int idx = 0; idx < NOISE_SAMPLE_COUNT; idx++)
+    {
+        int slot = ((int32_t) noise[idx]) * (slots / 2) / VOLUME_SCALE_VAL + (slots / 2);
+        if (slot < 0 || slot >= slots) printf("Warning: slot = %d\n", slot);
+        count[slot]++;
+    }
+    for (unsigned int idx = 0; idx < slots; idx++)
+    {
+        putchar(':');
+        for (unsigned int i = 0; i < count[idx] / (NOISE_SAMPLE_COUNT / 400); i++)
+        {
+            putchar('*');
+        }
+        putchar('\n');
+    }
+    */
+}
+
+void bt_app_vc_initialize(float min_db, float max_db, bool level0_mute)
+{
+    const float diff_db = max_db - min_db;
+    for (unsigned int level = 0; level < VOLUME_LEVELS; level++)
+    {
+        float constant = min_db + (level * diff_db) / VOLUME_LEVEL_MAX;
+        constant = pow(10.0, constant / 20.0) * VOLUME_SCALE_VAL;
+        gain_presets[level] = (uint16_t) constant;
+        ESP_LOGD(TAG, "gain[%d] = %x\n", level, gain_presets[level]);
+    }
+    if (level0_mute)
+    {
+        gain_presets[0] = 0;
+        ESP_LOGD(TAG, "gain[%d] = %x\n", 0, gain_presets[0]);
+    }
+
+    /* create Triangular PDF noise for dither */
+    generate_triangular_pdf_noise();
+}
 
 void bt_app_set_initial_volume()
 {
@@ -60,27 +117,41 @@ void bt_app_set_initial_volume()
 
 void bt_app_set_volume(uint32_t level)
 {
-    if (level < VOLUME_LEVELS)
-    {
-        volume = level;
-    }
+    volume = (level <= VOLUME_LEVEL_MAX) ? level : VOLUME_LEVEL_MAX;
+    ESP_LOGD(TAG, "volume: level=%d/127, mult=%d/%d",
+             level, gain_presets[volume], VOLUME_SCALE_VAL);
+}
+
+uint32_t bt_app_get_volume(void)
+{
+    return volume;
 }
 
 void bt_app_adjust_volume(uint8_t *data, size_t size)
 {
-    size_t items = size / (BT_SBC_BITS_PER_SAMPLE / 8); // 8 is bits per byte.
-    int16_t* ptr = (int16_t*) data;
+    static unsigned int noise_idx = 0;
     const uint16_t gain = gain_presets[volume];
-    while(items--)
+    const bool apply_dither = (gain <= (VOLUME_SCALE_VAL / 2));
+    if (gain < VOLUME_SCALE_VAL)
     {
-        int32_t fraction = (int32_t)*ptr;
-        if (volume < MAX_VOLUME)
+        size_t items = size / (BT_SBC_BITS_PER_SAMPLE / 8); /* 8 is bits per byte */
+        int16_t* ptr = (int16_t*) data;
+        while (items--)
         {
-            fraction = (fraction * gain) >> VOLUME_SCALE_VAL;
+            int32_t fraction = (int32_t)*ptr;
+            fraction *= gain;
+            if (apply_dither)
+            {
+                fraction += noise[noise_idx++];
+            }
+            fraction /= VOLUME_SCALE_VAL;
+            *ptr = (int16_t)fraction;
+            ptr += 1;
+            if (noise_idx == NOISE_SAMPLE_COUNT)
+            {
+                noise_idx = 0;
+            }
         }
-        fraction >>= 1;       /* otherwise it is too loud for my speaker */
-        *ptr = (int16_t)fraction;
-        ptr++;
     }
 }
 

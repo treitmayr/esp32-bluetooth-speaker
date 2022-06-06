@@ -19,9 +19,7 @@
 #include "bt_app_core.h"
 #include "driver/i2s.h"
 #include "freertos/ringbuf.h"
-//#include "bt_app_av.h"
 #include "bt_app_volume_control.h"
-/*#include "led.h"*/
 
 /*******************************
  * STATIC FUNCTION DECLARATIONS

@@ -80,9 +80,7 @@ static const char *s_a2d_audio_state_str[] = {"Suspended", "Stopped", "Started"}
                                              /* audio stream datapath state in string */
 static esp_avrc_rn_evt_cap_mask_t s_avrc_peer_rn_cap;
                                              /* AVRC target notification capability bit mask */
-static _lock_t s_volume_lock;
-static TaskHandle_t s_vcs_task_hdl = NULL;    /* handle for volume change simulation task */
-uint8_t s_volume = 0;   // 127;               /* local volume value */
+static TaskHandle_t s_vcs_task_hdl = NULL;   /* handle for volume change simulation task */
 static bool s_volume_notify;                 /* notify volume change or not */
 
 /********************************
@@ -145,17 +143,17 @@ static void bt_av_notify_evt_handler(uint8_t event_id, esp_avrc_rn_param_t *even
         break;
     /* when track status changed, this event comes */
     case ESP_AVRC_RN_PLAY_STATUS_CHANGE:
-        ESP_LOGI(BT_AV_TAG, "Playback status changed: 0x%x", event_parameter->playback);
+        ESP_LOGD(BT_AV_TAG, "Playback status changed: 0x%x", event_parameter->playback);
         bt_av_playback_changed();
         break;
     /* when track playing position changed, this event comes */
     case ESP_AVRC_RN_PLAY_POS_CHANGED:
-        ESP_LOGI(BT_AV_TAG, "Play position changed: %d ms", event_parameter->play_pos);
+        ESP_LOGD(BT_AV_TAG, "Play position changed: %d ms", event_parameter->play_pos);
         bt_av_play_pos_changed();
         break;
     /* others */
     default:
-        ESP_LOGI(BT_AV_TAG, "unhandled event: %d", event_id);
+        ESP_LOGW(BT_AV_TAG, "Unhandled event: %d", event_id);
         break;
     }
 }
@@ -203,10 +201,6 @@ void bt_i2s_driver_uninstall(void)
 
 static void volume_set_by_controller(uint8_t volume)
 {
-    ESP_LOGD(BT_RC_TG_TAG, "Volume is set by remote controller to: %d%%", (uint32_t)volume * 100 / 0x7f);
-    _lock_acquire(&s_volume_lock);
-    s_volume = volume;
-    _lock_release(&s_volume_lock);
     bt_app_set_volume(volume);
 /*
     if (s_volume_notify) {
@@ -221,15 +215,13 @@ static void volume_set_by_controller(uint8_t volume)
 
 static void volume_set_by_local_host(uint8_t volume)
 {
-    ESP_LOGI(BT_RC_TG_TAG, "Volume is set locally to: %d%%", (uint32_t)volume * 100 / 0x7f);
-    _lock_acquire(&s_volume_lock);
-    s_volume = volume;
-    _lock_release(&s_volume_lock);
+    ESP_LOGD(BT_RC_TG_TAG, "Volume is set locally to %d %%", (uint32_t)volume * 100 / 0x7f);
+    bt_app_set_volume(volume);
 
     /* send notification response to remote AVRCP controller */
     if (s_volume_notify) {
         esp_avrc_rn_param_t rn_param;
-        rn_param.volume = s_volume;
+        rn_param.volume = volume;
         esp_avrc_tg_send_rn_rsp(ESP_AVRC_RN_VOLUME_CHANGE, ESP_AVRC_RN_RSP_CHANGED, &rn_param);
         s_volume_notify = false;
     }
@@ -242,7 +234,7 @@ static void volume_change_simulation(void *arg)
     for (;;) {
         /* volume up locally every 10 seconds */
         vTaskDelay(10000 / portTICK_PERIOD_MS);
-        uint8_t volume = (s_volume + 5) & 0x7f;
+        uint8_t volume = (bt_app_get_volume() + 5) & 0x7f;
         volume_set_by_local_host(volume);
     }
 }
@@ -268,6 +260,7 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
             esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
             bt_i2s_task_start_up();
         } else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTING) {
+            bt_app_set_initial_volume();
             bt_i2s_driver_install();
         }
         break;
@@ -288,6 +281,12 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
         ESP_LOGI(BT_AV_TAG, "A2DP audio stream configuration, codec type: %d", a2d->audio_cfg.mcc.type);
         /* for now only SBC stream is supported */
         if (a2d->audio_cfg.mcc.type == ESP_A2D_MCT_SBC) {
+            ESP_LOGD(BT_AV_TAG, "Configure audio player: %x-%x-%x-%x",
+                     a2d->audio_cfg.mcc.cie.sbc[0],
+                     a2d->audio_cfg.mcc.cie.sbc[1],
+                     a2d->audio_cfg.mcc.cie.sbc[2],
+                     a2d->audio_cfg.mcc.cie.sbc[3]);
+
             int sample_rate = 16000;
             char oct0 = a2d->audio_cfg.mcc.cie.sbc[0];
             if (oct0 & (0x01 << 6)) {
@@ -299,12 +298,7 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
             }
             i2s_set_clk(0, sample_rate, BT_SBC_BITS_PER_SAMPLE, 2);
 
-            ESP_LOGI(BT_AV_TAG, "Configure audio player: %x-%x-%x-%x",
-                     a2d->audio_cfg.mcc.cie.sbc[0],
-                     a2d->audio_cfg.mcc.cie.sbc[1],
-                     a2d->audio_cfg.mcc.cie.sbc[2],
-                     a2d->audio_cfg.mcc.cie.sbc[3]);
-            ESP_LOGI(BT_AV_TAG, "Audio player configured, sample rate: %d", sample_rate);
+            ESP_LOGI(BT_AV_TAG, "Audio player configured, sample rate: %d Hz", sample_rate);
         }
         break;
     }
@@ -312,15 +306,15 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
     case ESP_A2D_PROF_STATE_EVT: {
         a2d = (esp_a2d_cb_param_t *)(p_param);
         if (ESP_A2D_INIT_SUCCESS == a2d->a2d_prof_stat.init_state) {
-            ESP_LOGI(BT_AV_TAG, "A2DP PROF STATE: Init Complete");
+            ESP_LOGD(BT_AV_TAG, "A2DP PROF STATE: Init Complete");
         } else {
-            ESP_LOGI(BT_AV_TAG, "A2DP PROF STATE: Deinit Complete");
+            ESP_LOGD(BT_AV_TAG, "A2DP PROF STATE: Deinit Complete");
         }
         break;
     }
     /* others */
     default:
-        ESP_LOGE(BT_AV_TAG, "%s unhandled event: %d", __func__, event);
+        ESP_LOGW(BT_AV_TAG, "%s unhandled event: %d", __func__, event);
         break;
     }
 }
@@ -341,12 +335,11 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
         if (rc->conn_stat.connected) {
             /* get remote supported event_ids of peer AVRCP Target */
             esp_avrc_ct_send_get_rn_capabilities_cmd(APP_RC_CT_TL_GET_CAPS);
-            // query remote volume
-            //esp_avrc_ct_send_register_notification_cmd(1, ESP_AVRC_RN_VOLUME_CHANGE, 0);
+            /* query remote volume
+            esp_avrc_ct_send_register_notification_cmd(1, ESP_AVRC_RN_VOLUME_CHANGE, 0); */
         } else {
             /* clear peer notification capability record */
             s_avrc_peer_rn_cap.bits = 0;
-            bt_app_set_initial_volume();
         }
         break;
     }
@@ -388,7 +381,7 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
     }
     /* others */
     default:
-        ESP_LOGE(BT_RC_CT_TAG, "%s unhandled event: %d", __func__, event);
+        ESP_LOGW(BT_RC_CT_TAG, "%s unhandled event: %d", __func__, event);
         break;
     }
 }
@@ -397,14 +390,14 @@ static void bt_app_volume_sim_task_handler(bool create)
 {
     #ifdef CONFIG_EXAMPLE_A2DP_ENABLE_VOLUME_SIMULATION_TASK
         if (create) {
-            // create task to simulate volume change
+            /* create task to simulate volume change */
             xTaskCreate(volume_change_simulation, "vcsT", 2048, NULL, 5, &s_vcs_task_hdl);
         } else {
             vTaskDelete(s_vcs_task_hdl);
             ESP_LOGI(BT_RC_TG_TAG, "Stop volume change simulation");
         }
     #else
-        // unused variables and functions.
+        /* unused variables and functions. */
         (void) create;
         (void) s_vcs_task_hdl;
         (void) volume_change_simulation;
@@ -434,7 +427,7 @@ static void bt_av_hdl_avrc_tg_evt(uint16_t event, void *p_param)
     }
     /* when absolute volume command from remote device set, this event comes */
     case ESP_AVRC_TG_SET_ABSOLUTE_VOLUME_CMD_EVT: {
-        ESP_LOGI(BT_RC_TG_TAG, "AVRC set absolute volume: %d%%", (int)rc->set_abs_vol.volume * 100 / 0x7f);
+        ESP_LOGD(BT_RC_TG_TAG, "AVRC set absolute volume: %d %%", (int)rc->set_abs_vol.volume * 100 / 0x7f);
         volume_set_by_controller(rc->set_abs_vol.volume);
         break;
     }
@@ -445,19 +438,19 @@ static void bt_av_hdl_avrc_tg_evt(uint16_t event, void *p_param)
             ESP_LOGI(BT_RC_TG_TAG, "AVRC register event notification for volume change");
             s_volume_notify = true;
             esp_avrc_rn_param_t rn_param;
-            rn_param.volume = s_volume;
+            rn_param.volume = 0x7f / 2;  /* TODO: Test */
             esp_avrc_tg_send_rn_rsp(ESP_AVRC_RN_VOLUME_CHANGE, ESP_AVRC_RN_RSP_INTERIM, &rn_param);
         }
         break;
     }
     /* when feature of remote device indicated, this event comes */
     case ESP_AVRC_TG_REMOTE_FEATURES_EVT: {
-        ESP_LOGI(BT_RC_TG_TAG, "AVRC remote features: %x, CT features: %x", rc->rmt_feats.feat_mask, rc->rmt_feats.ct_feat_flag);
+        ESP_LOGD(BT_RC_TG_TAG, "AVRC remote features: %x, CT features: %x", rc->rmt_feats.feat_mask, rc->rmt_feats.ct_feat_flag);
         break;
     }
     /* others */
     default:
-        ESP_LOGE(BT_RC_TG_TAG, "%s unhandled event: %d", __func__, event);
+        ESP_LOGW(BT_RC_TG_TAG, "%s unhandled event: %d", __func__, event);
         break;
     }
 }
@@ -477,7 +470,7 @@ void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
         break;
     }
     default:
-        ESP_LOGE(BT_AV_TAG, "Invalid A2DP event: %d", event);
+        ESP_LOGW(BT_AV_TAG, "Invalid A2DP event: %d", event);
         break;
     }
 }
@@ -489,9 +482,9 @@ void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
     /* log the number every 100 packets */
     if (++s_pkt_cnt % 100 == 0) {
         ESP_LOGD(BT_AV_TAG, "Audio packet count: %u", s_pkt_cnt);
-        //ESP_LOGI(BT_AV_TAG, "Audio packet count %u (min: %d, max: %d)", s_pkt_cnt, pcm_min, pcm_max);
-        //pcm_max = 0;
-        //pcm_min = 0;
+        /*ESP_LOGI(BT_AV_TAG, "Audio packet count %u (min: %d, max: %d)", s_pkt_cnt, pcm_min, pcm_max);
+        pcm_max = 0;
+        pcm_min = 0; */
     }
 }
 
@@ -510,7 +503,7 @@ void bt_app_rc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param
         break;
     }
     default:
-        ESP_LOGE(BT_RC_CT_TAG, "Invalid AVRC event: %d", event);
+        ESP_LOGW(BT_RC_CT_TAG, "Invalid AVRC event: %d", event);
         break;
     }
 }
@@ -527,7 +520,7 @@ void bt_app_rc_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param
         bt_app_work_dispatch(bt_av_hdl_avrc_tg_evt, event, param, sizeof(esp_avrc_tg_cb_param_t), NULL);
         break;
     default:
-        ESP_LOGE(BT_RC_TG_TAG, "Invalid AVRC event: %d", event);
+        ESP_LOGW(BT_RC_TG_TAG, "Invalid AVRC event: %d", event);
         break;
     }
 }

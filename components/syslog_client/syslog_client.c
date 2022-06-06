@@ -280,16 +280,16 @@ static uint32_t resolve_mdns_host(const char *host_name)
     {
         if (err == ESP_ERR_NOT_FOUND)
         {
-            ESP_LOGE(TAG, "Host '%s' was not found!", host_name);
+            ESP_LOGE(TAG, "Host name '%s' was not found by mDNS query", host_name);
         }
         else
         {
-            ESP_LOGE(TAG, "MDNS query failed");
+            ESP_LOGE(TAG, "mDNS query failed for host name '%s'", host_name);
         }
     }
     else
     {
-        ESP_LOGI(TAG, "%s has IP address " IPSTR, host_name, IP2STR(&addr));
+        ESP_LOGD(TAG, "Host '%s' has IP address " IPSTR, host_name, IP2STR(&addr));
         result = addr.addr;
     }
 
@@ -318,7 +318,7 @@ static uint32_t resolve_host(const char *host)
     if (he && (he->h_length >= sizeof(result)) && he->h_addr_list && he->h_addr_list[0])
     {
         result = *((uint32_t *)(he->h_addr_list[0]));
-        ESP_LOGD(TAG, "dns result %s", inet_ntoa(result));
+        ESP_LOGD(TAG, "DNS query for host name '%s' returned %s", host, inet_ntoa(result));
     }
     else
     {
@@ -345,14 +345,14 @@ void syslog_client_start(const char *host, unsigned int port,
 {
 	struct timeval send_to = {1,0};
 	syslog_fd = 0;
-	ESP_LOGI(TAG, "initializing...");
+	ESP_LOGD(TAG, "Initializing...");
     syslog_fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (syslog_fd > 0)
     {
         const uint32_t dest_addr_bytes = resolve_host(host);
         if (dest_addr_bytes)
         {
-        	ESP_LOGI(TAG, "logging to %s:%d", inet_ntoa(dest_addr_bytes), port);
+        	ESP_LOGI(TAG, "Logging to %s:%d", inet_ntoa(dest_addr_bytes), port);
             bzero(&dest_addr, sizeof(dest_addr));
             dest_addr.sin_family = AF_INET;
             dest_addr.sin_port = htons(port);
@@ -372,7 +372,8 @@ void syslog_client_start(const char *host, unsigned int port,
                         own_hostname = SYSLOG_NILVALUE;
                     }
 
-                    const char *app_name_use = (app_name) ? app_name : SYSLOG_NILVALUE;
+                    /* check validity of app_name */
+                    const char *app_name_use = (app_name && *app_name) ? app_name : SYSLOG_NILVALUE;
 
                     size_t int_tmpl_size = strlen(SYSLOG_TEMPLATE) +
                                            strlen(own_hostname) +
@@ -384,7 +385,7 @@ void syslog_client_start(const char *host, unsigned int port,
                     {
                         intermediate_template = strdup(SYSLOG_TEMPLATE_FALLBACK);
                     }
-                	ESP_LOGI(TAG, "Intermediate template '%s'", intermediate_template);
+                	ESP_LOGD(TAG, "Intermediate template '%s'", intermediate_template);
                 }
 
                 esp_register_shutdown_handler(shutdown_handler);
