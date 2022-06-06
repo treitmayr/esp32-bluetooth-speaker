@@ -39,9 +39,8 @@ static uint16_t gain_presets[VOLUME_LEVELS];
 static int16_t noise[NOISE_SAMPLE_COUNT];
 
 /* if the volume is not set by host, use this volume. */
-int32_t volume = INITIAL_VOLUME;
+int32_t volume = 0;
 
-extern esp_log_level_t esp_log_level_get(const char *tag);
 
 void generate_triangular_pdf_noise()
 {

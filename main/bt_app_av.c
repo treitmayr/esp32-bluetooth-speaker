@@ -260,7 +260,16 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
             esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
             bt_i2s_task_start_up();
         } else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTING) {
-            bt_app_set_initial_volume();
+            /* FIXME: Currently I know no other way of fixing initial volume: */
+            const static uint8_t cellphone[] = {0xb4, 0x9d, 0x0b, 0x85, 0x40, 0x3f};
+            if (memcmp(bda, cellphone, 6) == 0)
+            {
+                bt_app_set_volume(0x7f);
+            }
+            else
+            {
+                bt_app_set_volume(0);
+            }
             bt_i2s_driver_install();
         }
         break;
@@ -438,7 +447,7 @@ static void bt_av_hdl_avrc_tg_evt(uint16_t event, void *p_param)
             ESP_LOGI(BT_RC_TG_TAG, "AVRC register event notification for volume change");
             s_volume_notify = true;
             esp_avrc_rn_param_t rn_param;
-            rn_param.volume = 0x7f / 2;  /* TODO: Test */
+            rn_param.volume = bt_app_get_volume();
             esp_avrc_tg_send_rn_rsp(ESP_AVRC_RN_VOLUME_CHANGE, ESP_AVRC_RN_RSP_INTERIM, &rn_param);
         }
         break;
