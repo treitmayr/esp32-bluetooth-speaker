@@ -26,32 +26,8 @@ extern const uint8_t wifi_credentials_end[] asm("_binary_" CONFIG_WIFI_HELPER_CR
 static char *wifi_hostname = NULL;
 static esp_netif_t *sta_netif;
 static xSemaphoreHandle s_semph_get_ip_addrs;
+bool credentials_set;
 
-/**
- * ESP WIFI event handler which is repsonsible for
- * invoking the WIFI sem_status callback.
- */
-static void _wifi_event_handler(void* arg, esp_event_base_t event_base,
-                          int32_t event_id, void* event_data)
-{
-    if (event_base == WIFI_EVENT)
-    {
-        if (event_id == WIFI_EVENT_STA_START)
-        {
-            tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, wifi_hostname);
-            esp_wifi_connect();
-        }
-    }
-    else if (event_base == IP_EVENT)
-    {
-        if (event_id == IP_EVENT_STA_GOT_IP)
-        {
-            ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-            ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&event->ip_info.ip));
-            xSemaphoreGive(s_semph_get_ip_addrs);
-        }
-    }
-}
 
 static inline char *terminated_strncpy(char *dest, size_t dest_max, const char *src, size_t src_len)
 {
@@ -60,6 +36,7 @@ static inline char *terminated_strncpy(char *dest, size_t dest_max, const char *
   dest[copy_count] = '\0';
   return dest;
 }
+
 
 /* create a clean version of the given hostname */
 static char *clean_hostname(const char *hostname)
@@ -87,6 +64,7 @@ static char *clean_hostname(const char *hostname)
     return hn;
 }
 
+
 static bool has_sta_configured()
 {
     static const uint8_t empty_bssid[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
@@ -100,17 +78,21 @@ static bool has_sta_configured()
            (memcmp(empty_bssid, config.sta.bssid, sizeof(empty_bssid)) != 0);
 }
 
+
 /**
  * Set new WIFI credentials (automatically stored in NVS).
  */
-static void set_wifi_credentials(const char *credentials, size_t n)
+static void set_wifi_credentials()
 {
+    const char *credentials = (const char *)wifi_credentials_start;
+    const size_t n = wifi_credentials_end - wifi_credentials_start;
     const char *ssid = NULL;
     size_t ssid_len = 0;
     const char *passphrase = NULL;
     size_t passphrase_len = 0;
     const char *search = credentials;
     size_t rest = n;
+
 
     while (rest > 0) {
         if (strchr(SEPARATORS, *search) == NULL) {
@@ -160,19 +142,69 @@ static void set_wifi_credentials(const char *credentials, size_t n)
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
 }
 
+
+/**
+ * ESP WIFI event handlers
+ */
+static void wifi_event_handler_start(void* arg, esp_event_base_t event_base,
+                                      int32_t event_id, void* event_data)
+{
+    if (event_base == WIFI_EVENT)
+    {
+        if (event_id == WIFI_EVENT_STA_START)
+        {
+            tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, wifi_hostname);
+            esp_wifi_connect();
+        }
+    }
+}
+
+
+static void wifi_event_handler_reconnect(void* arg, esp_event_base_t event_base,
+                                            int32_t event_id, void* event_data)
+{
+    if (event_base == WIFI_EVENT)
+    {
+        if (event_id == WIFI_EVENT_STA_DISCONNECTED)
+        {
+            bool *credentials_set = (bool *) arg;
+            if (!*credentials_set)
+            {
+                /* if authentication fails, try to reauthenticate with updated credentials */
+                set_wifi_credentials();
+                *credentials_set = true;
+            }
+            esp_wifi_connect();
+        }
+    }
+}
+
+
+static void wifi_event_handler_got_ip(void* arg, esp_event_base_t event_base,
+                                       int32_t event_id, void* event_data)
+{
+    if (event_base == IP_EVENT)
+    {
+        if (event_id == IP_EVENT_STA_GOT_IP)
+        {
+            ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+            ESP_LOGI(TAG, "Got IP address: " IPSTR, IP2STR(&event->ip_info.ip));
+            if (s_semph_get_ip_addrs)
+            {
+                xSemaphoreGive(s_semph_get_ip_addrs);
+            }
+        }
+    }
+}
+
+
 /**
  * Initialize WIFI and configure it from NVS, if available.
  */
 bool wifi_start(const char* hostname, const uint32_t conn_timeout_ms)
 {
-    bool success;
-    const char *credentials = (const char *)wifi_credentials_start;
-    size_t n = wifi_credentials_end - wifi_credentials_start;
-
     wifi_hostname = clean_hostname(hostname);
-    ESP_LOGI(TAG, "Starting wifi as station '%s'", wifi_hostname);
-
-    s_semph_get_ip_addrs = xSemaphoreCreateCounting(1, 0);
+    ESP_LOGI(TAG, "Starting wifi with host name '%s'", wifi_hostname);
 
     // see https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/wifi.html#wi-fi-lwip-init-phase
     ESP_ERROR_CHECK(esp_netif_init());
@@ -182,30 +214,49 @@ bool wifi_start(const char* hostname, const uint32_t conn_timeout_ms)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &_wifi_event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &_wifi_event_handler, NULL));
-
+    credentials_set = false;
     if (!has_sta_configured())
     {
-        set_wifi_credentials(credentials, n);
+        set_wifi_credentials();
+        credentials_set = true;
     }
+
+    s_semph_get_ip_addrs = xSemaphoreCreateCounting(1, 0);
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_START,
+                                               wifi_event_handler_start, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED,
+                                               wifi_event_handler_reconnect, (void *) &credentials_set));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                               wifi_event_handler_got_ip, NULL));
 
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
 
-    success = (xSemaphoreTake(s_semph_get_ip_addrs, conn_timeout_ms / portTICK_PERIOD_MS) == pdTRUE);
+    bool success = (xSemaphoreTake(s_semph_get_ip_addrs, conn_timeout_ms / portTICK_PERIOD_MS) == pdTRUE);
+
+    ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_START,
+                                                 wifi_event_handler_start));
+    xSemaphoreHandle semph_copy = s_semph_get_ip_addrs;
+    s_semph_get_ip_addrs = NULL;
+    vSemaphoreDelete(semph_copy);
+    credentials_set = true;
+
     if (!success) {
         // timeout
         ESP_LOGW(TAG, "Could not connect to OTA server");
         wifi_stop();
     }
+
     return success;
 }
 
+
 void wifi_stop(void)
 {
-    ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &_wifi_event_handler));
-    ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &_wifi_event_handler));
+    ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                                 wifi_event_handler_got_ip));
+    ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED,
+                                                 wifi_event_handler_reconnect));
 
     esp_err_t err = esp_wifi_stop();
     if (err == ESP_ERR_WIFI_NOT_INIT) {
@@ -216,8 +267,6 @@ void wifi_stop(void)
     ESP_ERROR_CHECK(esp_wifi_deinit());
     ESP_ERROR_CHECK(esp_wifi_clear_default_wifi_driver_and_handlers(sta_netif));
     esp_netif_destroy(sta_netif);
-    vSemaphoreDelete(s_semph_get_ip_addrs);
-    s_semph_get_ip_addrs = NULL;
     sta_netif = NULL;
     free(wifi_hostname);
     wifi_hostname = NULL;

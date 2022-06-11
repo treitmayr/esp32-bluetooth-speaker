@@ -8,6 +8,7 @@
 #include "esp_err.h"
 #include "esp_http_client.h"
 #include "nvs_flash.h"
+#include "esp_ota_ops.h"
 #include "esp_https_ota.h"
 
 #include "ota_update.h"
@@ -18,7 +19,8 @@ static const char* nvs_namespace = "OTA-UPDATER";
 static const char* key_last_modified = "Last-Modified";
 static char* value_last_modified = NULL;
 
-static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
+
+static esp_err_t _http_event_handler_head(esp_http_client_event_t *evt)
 {
     switch (evt->event_id) {
         case HTTP_EVENT_ERROR:
@@ -47,6 +49,20 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;      /* return value is unused by caller */
 }
 
+
+static esp_err_t _http_event_handler_update(esp_http_client_event_t *evt)
+{
+    switch (evt->event_id) {
+        case HTTP_EVENT_ON_DATA:
+            ota_mark_application_ok();
+            break;
+        default:
+            break;
+    }
+    return ESP_OK;      /* return value is unused by caller */
+}
+
+
 static char *get_last_modified_from_url(const char *url)
 {
     esp_err_t err;
@@ -57,7 +73,7 @@ static char *get_last_modified_from_url(const char *url)
     esp_http_client_config_t http_config =
     {
         .url = url,
-        .event_handler = _http_event_handler,
+        .event_handler = _http_event_handler_head,
         .keep_alive_enable = true,
     };
 
@@ -103,6 +119,7 @@ failure:
     return result;
 }
 
+
 static char *get_last_modified_from_nvs()
 {
     char *result = NULL;
@@ -134,6 +151,7 @@ static char *get_last_modified_from_nvs()
     return result;
 }
 
+
 static void set_last_modified_in_nvs(const char *value)
 {
     nvs_handle_t nvs_handle;
@@ -141,6 +159,7 @@ static void set_last_modified_in_nvs(const char *value)
     ESP_ERROR_CHECK(nvs_set_str(nvs_handle, key_last_modified, value));
     nvs_close(nvs_handle);
 }
+
 
 static bool perform_ota_update(const char *ota_url)
 {
@@ -156,6 +175,7 @@ static bool perform_ota_update(const char *ota_url)
             /* perform actual update */
             esp_http_client_config_t config = {
                 .url = ota_url,
+                .event_handler = _http_event_handler_update,
                 .keep_alive_enable = true,
             };
             esp_err_t ret = esp_https_ota(&config);
@@ -176,16 +196,27 @@ static bool perform_ota_update(const char *ota_url)
     return result;
 }
 
-void ota_update(const char *ota_url)
+
+bool ota_update(const char *ota_url)
 {
     bool reboot = perform_ota_update(ota_url);
-    if (reboot)
-    {
-        ESP_LOGW(TAG, "Rebooting after firmware update");
-        esp_restart();
-    }
-    else
+    if (!reboot)
     {
         ESP_LOGI(TAG, "No firmware update performed");
+    }
+    return reboot;
+}
+
+
+void ota_mark_application_ok()
+{
+    static bool called = false;
+    if (!called)
+    {
+        called = true;
+#ifdef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+        ESP_LOGI(TAG, "Mark current firmware as OK");
+        esp_ota_mark_app_valid_cancel_rollback();
+#endif
     }
 }

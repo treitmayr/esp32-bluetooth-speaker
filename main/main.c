@@ -23,13 +23,15 @@
 #include "bt_app_core.h"
 #include "bt_app_av.h"
 #include "bt_app_volume_control.h"
-#include "bt_app_ota.h"
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
 #include "esp_gap_bt_api.h"
 #include "esp_a2dp_api.h"
 #include "esp_avrc_api.h"
 #include "driver/i2s.h"
+#include "syslog_client.h"
+#include "wifi_helper.h"
+#include "ota_update.h"
 
 /* device name */
 #define LOCAL_DEVICE_NAME    "Thermomix Pro+"
@@ -128,12 +130,34 @@ static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
     }
 }
 
+/*******************************/
+
+static void try_ota_update(const char *hostname, const char *app_name, const char *ota_url)
+{
+    bool connected = wifi_start(hostname, 5000);
+    if (connected)
+    {
+        syslog_client_start_simple(app_name);
+        if (ota_update(ota_url))
+        {
+            ESP_LOGW(BT_AV_TAG, "Rebooting after firmware update");
+            esp_restart();
+        }
+    }
+    else
+    {
+        syslog_early_buffering_stop();
+    }
+}
+
 /*******************************
  * MAIN ENTRY POINT
  ******************************/
 
 void app_main(void)
 {
+    syslog_early_buffering_start(50);
+
     /* initialize NVS — it is used to store PHY calibration data */
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -193,7 +217,10 @@ void app_main(void)
     bt_app_set_initial_volume();
 
     bt_app_task_start_up();
+
     /* bluetooth device name, connection mode and profile set up */
+
+    ota_mark_application_ok();
     bt_app_work_dispatch(bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, NULL, 0, NULL);
 }
 
