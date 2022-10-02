@@ -1,15 +1,13 @@
 #pragma once
 
-#include "sdkconfig.h"
-#ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
-
+#include <stdbool.h>
 #include <stdint.h>
 
 /*
 * Initializes volume control data structures.
 * Allowed dB values in the range of -96 to 0.
 */
-void bt_app_vc_initialize(float min_db, float max_db, bool level0_mute);
+void bt_app_vc_initialize(double min_db, double max_db, bool level0_mute);
 
 /*
 * Sets volume. Allowed range is 0-127
@@ -27,8 +25,6 @@ uint32_t bt_app_get_volume(void);
 void bt_app_set_initial_volume();
 
 /*
-* Changes an input data according to volume level. 
+* Changes an input data according to volume level.
 */
 void bt_app_adjust_volume(uint8_t *data, size_t size);
-
-#endif /* CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE */

@@ -1,8 +1,10 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Unlicense OR CC0-1.0
- */
+   This example code is in the Public Domain (or CC0 licensed, at your option.)
+
+   Unless required by applicable law or agreed to in writing, this
+   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+   CONDITIONS OF ANY KIND, either express or implied.
+*/
 
 #include "sdkconfig.h"
 #ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
@@ -38,9 +40,9 @@ static void bt_app_work_dispatched(bt_app_msg_t *msg);
  * STATIC VARIABLE DEFINITIONS
  ******************************/
 
-static QueueHandle_t s_bt_app_task_queue = NULL;  /* handle of work queue */
-static TaskHandle_t s_bt_app_task_handle = NULL;  /* handle of application task  */
-static TaskHandle_t s_bt_i2s_task_handle = NULL;  /* handle of I2S task */
+static xQueueHandle s_bt_app_task_queue = NULL;  /* handle of work queue */
+static xTaskHandle s_bt_app_task_handle = NULL;  /* handle of application task  */
+static xTaskHandle s_bt_i2s_task_handle = NULL;  /* handle of I2S task */
 static RingbufHandle_t s_ringbuf_i2s = NULL;     /* handle of ringbuffer for I2S */
 
 /*******************************
@@ -54,7 +56,7 @@ static bool bt_app_send_msg(bt_app_msg_t *msg)
     }
 
     /* send the message to work queue */
-    if (xQueueSend(s_bt_app_task_queue, msg, 10 / portTICK_PERIOD_MS) != pdTRUE) {
+    if (xQueueSend(s_bt_app_task_queue, msg, 10 / portTICK_RATE_MS) != pdTRUE) {
         ESP_LOGE(BT_APP_CORE_TAG, "%s xQueue send failed", __func__);
         return false;
     }
@@ -74,7 +76,7 @@ static void bt_app_task_handler(void *arg)
 
     for (;;) {
         /* receive message from work queue and handle it */
-        if (pdTRUE == xQueueReceive(s_bt_app_task_queue, &msg, (TickType_t)portMAX_DELAY)) {
+        if (pdTRUE == xQueueReceive(s_bt_app_task_queue, &msg, (portTickType)portMAX_DELAY)) {
             ESP_LOGD(BT_APP_CORE_TAG, "%s, signal: 0x%x, event: 0x%x", __func__, msg.sig, msg.event);
 
             switch (msg.sig) {
@@ -93,6 +95,20 @@ static void bt_app_task_handler(void *arg)
     }
 }
 
+#ifdef CONFIG_EXAMPLE_A2DP_SINK_OUTPUT_INTERNAL_DAC
+static void bt_i2s_convert_for_internal_dac(int16_t *data, size_t len)
+{
+    uint16_t *dt = (uint16_t *)data;
+    size_t count = len / 2;
+    while (count)
+    {
+        *dt += 0x8000U;
+        dt++;
+        count--;
+    }
+}
+#endif
+
 static void bt_i2s_task_handler(void *arg)
 {
     uint8_t *data = NULL;
@@ -101,9 +117,12 @@ static void bt_i2s_task_handler(void *arg)
 
     for (;;) {
         /* receive data from ringbuffer and write it to I2S DMA transmit buffer */
-        data = (uint8_t *)xRingbufferReceive(s_ringbuf_i2s, &item_size, (TickType_t)portMAX_DELAY);
+        data = (uint8_t *)xRingbufferReceive(s_ringbuf_i2s, &item_size, (portTickType)portMAX_DELAY);
         if (item_size != 0){
             bt_app_adjust_volume(data, item_size);
+#ifdef CONFIG_EXAMPLE_A2DP_SINK_OUTPUT_INTERNAL_DAC
+            bt_i2s_convert_for_internal_dac(data, item_size);
+#endif
             i2s_write(0, data, item_size, &bytes_written, portMAX_DELAY);
             vRingbufferReturnItem(s_ringbuf_i2s, (void *)data);
         }
@@ -144,7 +163,7 @@ bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, i
 void bt_app_task_start_up(void)
 {
     s_bt_app_task_queue = xQueueCreate(10, sizeof(bt_app_msg_t));
-    xTaskCreate(bt_app_task_handler, "BtAppTask", 3072, NULL, configMAX_PRIORITIES - 3, &s_bt_app_task_handle);
+    xTaskCreate(bt_app_task_handler, "BtAppTask", 3072, NULL, 10, &s_bt_app_task_handle);
 }
 
 void bt_app_task_shut_down(void)
@@ -185,7 +204,7 @@ void bt_i2s_task_shut_down(void)
 
 size_t write_ringbuf(const uint8_t *data, size_t size)
 {
-    BaseType_t done = xRingbufferSend(s_ringbuf_i2s, (void *)data, size, (TickType_t)portMAX_DELAY);
+    BaseType_t done = xRingbufferSend(s_ringbuf_i2s, (void *)data, size, (portTickType)portMAX_DELAY);
 
     return done ? size : 0;
 }

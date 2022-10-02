@@ -1,8 +1,10 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Unlicense OR CC0-1.0
- */
+   This example code is in the Public Domain (or CC0 licensed, at your option.)
+
+   Unless required by applicable law or agreed to in writing, this
+   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+   CONDITIONS OF ANY KIND, either express or implied.
+*/
 
 #include "sdkconfig.h"
 #ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
@@ -233,7 +235,7 @@ static void volume_change_simulation(void *arg)
 
     for (;;) {
         /* volume up locally every 10 seconds */
-        vTaskDelay(10000 / portTICK_PERIOD_MS);
+        vTaskDelay(10000 / portTICK_RATE_MS);
         uint8_t volume = (bt_app_get_volume() + 5) & 0x7f;
         volume_set_by_local_host(volume);
     }
@@ -261,14 +263,20 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
             bt_i2s_task_start_up();
         } else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTING) {
             /* FIXME: Currently I know no other way of fixing initial volume: */
-            const static uint8_t cellphone[] = {0xb4, 0x9d, 0x0b, 0x85, 0x40, 0x3f};
-            if (memcmp(bda, cellphone, 6) == 0)
+            const static uint8_t cellphones[][6] = {
+                {0xb4, 0x9d, 0x0b, 0x85, 0x40, 0x3f},
+                {0x4c, 0xe0, 0xdb, 0x81, 0xd3, 0xed},
+                {0xe4, 0x84, 0xd3, 0x12, 0xba, 0xb2}
+            };
+            if ((memcmp(bda, cellphones[0], 6) == 0) ||
+                (memcmp(bda, cellphones[1], 6) == 0) ||
+                (memcmp(bda, cellphones[2], 6) == 0))
             {
                 bt_app_set_volume(0x7f);
             }
             else
             {
-                bt_app_set_volume(0);
+                bt_app_set_volume(0x20);
             }
             bt_i2s_driver_install();
         }
@@ -305,7 +313,7 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
             } else if (oct0 & (0x01 << 4)) {
                 sample_rate = 48000;
             }
-            i2s_set_clk(0, sample_rate, BT_SBC_BITS_PER_SAMPLE, 2);
+            i2s_set_clk(0, sample_rate, 16, 2);
 
             ESP_LOGI(BT_AV_TAG, "Audio player configured, sample rate: %d Hz", sample_rate);
         }

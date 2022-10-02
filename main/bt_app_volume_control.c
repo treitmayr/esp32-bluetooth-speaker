@@ -12,17 +12,19 @@
  * input_signal = (input_signal * constant) >> VOLUME_SCALE_VAL
  */
 
-#include "sdkconfig.h"
-#ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
-
 #include <stdint.h>
 #include <limits.h>
 #include <math.h>
-#include "bt_app_av.h"
 #include "bt_app_volume_control.h"
 #include "esp_log.h"
 #include "esp_system.h"
 
+
+#define NELEMS(x) (sizeof(x) / sizeof((x)[0]))
+#define MIN(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
 
 #define VOLUME_LEVELS 128
 #define VOLUME_LEVEL_MAX (VOLUME_LEVELS - 1)
@@ -49,15 +51,15 @@ void generate_triangular_pdf_noise()
     esp_fill_random((void *) noise, sizeof(noise));
     const int16_t first = noise[0];
     int16_t s2 = noise[0] / 2;
-    const int16_t int16_min = -2 * ((int16_t) 1 << (sizeof(int16_t) * 8 - 2));
     for (unsigned int idx = 0; idx < NOISE_SAMPLE_COUNT; idx++)
     {
         const int16_t s1 = s2;
         s2 = (idx < (NOISE_SAMPLE_COUNT - 1)) ? noise[idx + 1] : first;
         s2 /= 2;
         int16_t diff = s2 - s1;
-        /* do NOT include the lowest value of int16_t */
-        if (diff == int16_min)
+        /* do NOT include the lowest value of int16_t in order to
+           prevent clipping when applied to audio samples */
+        if (diff == INT16_MIN)
         {
             diff += 1;
         }
@@ -70,14 +72,14 @@ void generate_triangular_pdf_noise()
     }
     /* DEBUG: Check the distribution of noise values:
     uint16_t count[16] = {0};
-    const int slots = sizeof(count)/sizeof(count[0]);
+    const int slots = NELEMS(count);
     for (unsigned int idx = 0; idx < NOISE_SAMPLE_COUNT; idx++)
     {
         int slot = ((int32_t) noise[idx]) * (slots / 2) / VOLUME_SCALE_VAL + (slots / 2);
         if (slot < 0 || slot >= slots) printf("Warning: slot = %d\n", slot);
         count[slot]++;
     }
-    for (unsigned int idx = 0; idx < slots; idx++)
+    for (unsigned int idx = 1; idx < slots; idx++)
     {
         putchar(':');
         for (unsigned int i = 0; i < count[idx] / (NOISE_SAMPLE_COUNT / 400); i++)
@@ -89,12 +91,12 @@ void generate_triangular_pdf_noise()
     */
 }
 
-void bt_app_vc_initialize(float min_db, float max_db, bool level0_mute)
+void bt_app_vc_initialize(double min_db, double max_db, bool level0_mute)
 {
-    const float diff_db = max_db - min_db;
+    const double diff_db = max_db - min_db;
     for (unsigned int level = 0; level < VOLUME_LEVELS; level++)
     {
-        float constant = min_db + (level * diff_db) / VOLUME_LEVEL_MAX;
+        double constant = min_db + (level * diff_db) / VOLUME_LEVEL_MAX;
         constant = pow(10.0, constant / 20.0) * VOLUME_SCALE_VAL;
         gain_presets[level] = (uint16_t) constant;
         ESP_LOGD(TAG, "gain[%d] = %x\n", level, gain_presets[level]);
@@ -116,7 +118,7 @@ void bt_app_set_initial_volume()
 
 void bt_app_set_volume(uint32_t level)
 {
-    volume = (level <= VOLUME_LEVEL_MAX) ? level : VOLUME_LEVEL_MAX;
+    volume = MIN(level, VOLUME_LEVEL_MAX);
     ESP_LOGD(TAG, "volume: level=%d/127, mult=%d/%d",
              level, gain_presets[volume], VOLUME_SCALE_VAL);
 }
@@ -128,30 +130,30 @@ uint32_t bt_app_get_volume(void)
 
 void bt_app_adjust_volume(uint8_t *data, size_t size)
 {
-    static unsigned int noise_idx = 0;
     const uint16_t gain = gain_presets[volume];
-    const bool apply_dither = (gain <= (VOLUME_SCALE_VAL / 2));
+
     if (gain < VOLUME_SCALE_VAL)
     {
-        size_t items = size / (BT_SBC_BITS_PER_SAMPLE / 8); /* 8 is bits per byte */
-        int16_t* ptr = (int16_t*) data;
-        while (items--)
+        const bool apply_dither = (gain <= (VOLUME_SCALE_VAL / 2));
+        size_t sample_cnt = size / sizeof(int16_t);
+        int16_t* sample_ptr = (int16_t *)data;
+        while (sample_cnt)
         {
-            int32_t fraction = (int32_t)*ptr;
+            /* perform volume adjustment in 32 bit */
+            int32_t fraction = (int32_t)*sample_ptr;
             fraction *= gain;
             if (apply_dither)
             {
-                fraction += noise[noise_idx++];
+                static unsigned int noise_idx = NOISE_SAMPLE_COUNT - 1;
+                fraction += noise[noise_idx];
+                noise_idx = (noise_idx > 0) ? (noise_idx - 1) : (NOISE_SAMPLE_COUNT - 1);
             }
+            /* use division instead of bit shifting for symmetric rounding of
+               positive and negative values (on which dithering relies, too) */
             fraction /= VOLUME_SCALE_VAL;
-            *ptr = (int16_t)fraction;
-            ptr += 1;
-            if (noise_idx == NOISE_SAMPLE_COUNT)
-            {
-                noise_idx = 0;
-            }
+            *sample_ptr = (int16_t)fraction;
+            sample_ptr += 1;
+            sample_cnt -= 1;
         }
     }
 }
-
-#endif /* CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE */
