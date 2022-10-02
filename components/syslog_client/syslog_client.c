@@ -20,6 +20,10 @@
 /* #define SYSLOG_UTF8 */
 #define MAX_PAYLOAD_LEN 200
 #define NELEMS(x) (sizeof(x) / sizeof((x)[0]))
+#define MIN(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
 
 /* from https://datatracker.ietf.org/doc/html/rfc5424#section-6 */
 
@@ -54,11 +58,6 @@
                                  SYSLOG_STRUCTURED_DATA SYSLOG_SP \
                                  SYSLOG_BOM \
                                  "%s"
-
-#define MIN(a,b) \
-   ({ __typeof__ (a) _a = (a); \
-       __typeof__ (b) _b = (b); \
-     _a < _b ? _a : _b; })
 
 static const char *TAG = "SYSLOG";
 
@@ -745,8 +744,9 @@ void syslog_client_stop()
 
     if (intermediate_template && false)    /* FIXME: */
     {
-        free(intermediate_template);
+        char *temp = intermediate_template;
         intermediate_template = NULL;
         intermediate_template_len = 0;
+        free(temp);
     }
 }

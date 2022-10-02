@@ -32,7 +32,7 @@ static esp_err_t _http_event_handler_head(esp_http_client_event_t *evt)
             }
             break;
         case HTTP_EVENT_ON_HEADER:
-            ESP_LOGI(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
             if (strcasecmp(evt->header_key, key_last_modified) == 0)
             {
                 if (value_last_modified)
@@ -182,7 +182,7 @@ static bool perform_ota_update(const char *ota_url)
 
             if (ret == ESP_OK)
             {
-                ESP_LOGW(TAG, "Peformed firmware update to firmware from %s", last_modified_rem);
+                ESP_LOGW(TAG, "Performed firmware update to firmware from %s", last_modified_rem);
                 set_last_modified_in_nvs(last_modified_rem);
                 result = true;
             }
