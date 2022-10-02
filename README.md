@@ -5,7 +5,7 @@ This project is based on the [ESP-IDF A2DP-SINK demo](https://github.com/espress
 
 * Over-the-air updates with configurable update server (currently only via http, not https)
 * Send log out to syslog server
-* Dithering to improve audio quality at lower volumes (only relevant if volume is applied in speaker application)
+* Dithering to improve audio quality at lower volumes (kicking in at half the maximum volume)
 * Volume control (but initial volume still needs fixes)
 
 The first two items are intended for putting the ESP32+DAC inside a closed speaker, but still
