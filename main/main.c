@@ -1,22 +1,13 @@
-//
-// Original BT Sink code from https://github.com/espressif/esp-idf/tree/v4.3.1/examples/bluetooth/bluedroid/classic_bt/a2dp_sink
-//
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+/*
+ * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// 
-// Extensions:
-// Copyright 2022 Thomas Reitmayr
+/*
+ * Extensions:
+ * Copyright 2022-2023 Thomas Reitmayr
+ */
 
 #include "sdkconfig.h"
 #ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
@@ -42,7 +33,9 @@
 #include "esp_gap_bt_api.h"
 #include "esp_a2dp_api.h"
 #include "esp_avrc_api.h"
+/*
 #include "driver/i2s.h"
+*/
 #include "syslog_client.h"
 #include "wifi_helper.h"
 #include "ota_update.h"
@@ -133,6 +126,9 @@ static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
         esp_a2d_register_callback(&bt_app_a2d_cb);
         esp_a2d_sink_register_data_callback(bt_app_a2d_data_cb);
 
+        /* Get the default value of the delay value */
+        esp_a2d_sink_get_delay_value();
+
         /* set discoverable and connectable mode, wait to be connected */
         esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
         break;
@@ -192,6 +188,7 @@ void app_main(void)
      */
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
 
+    /* set volume limits */
     bt_app_vc_initialize(-57.0, -6.0, false);
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();

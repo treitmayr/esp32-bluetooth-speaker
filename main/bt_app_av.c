@@ -1,10 +1,8 @@
 /*
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
+ * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 #include "sdkconfig.h"
 #ifndef CONFIG_EXAMPLE_BUILD_FACTORY_IMAGE
@@ -27,7 +25,12 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#ifdef CONFIG_EXAMPLE_A2DP_SINK_OUTPUT_INTERNAL_DAC
+// DAC DMA mode is only supported by the legacy I2S driver, it will be replaced once DAC has its own DMA dirver
 #include "driver/i2s.h"
+#else
+#include "driver/i2s_std.h"
+#endif
 
 #include "sys/lock.h"
 
@@ -37,6 +40,9 @@
 #define APP_RC_CT_TL_RN_TRACK_CHANGE     (2)
 #define APP_RC_CT_TL_RN_PLAYBACK_CHANGE  (3)
 #define APP_RC_CT_TL_RN_PLAY_POS_CHANGE  (4)
+
+/* Application layer causes delay value */
+#define APP_DELAY_VALUE                  50  // 5ms
 
 /*******************************
  * STATIC FUNCTION DECLARATIONS
@@ -84,6 +90,9 @@ static esp_avrc_rn_evt_cap_mask_t s_avrc_peer_rn_cap;
                                              /* AVRC target notification capability bit mask */
 static TaskHandle_t s_vcs_task_hdl = NULL;   /* handle for volume change simulation task */
 static bool s_volume_notify;                 /* notify volume change or not */
+#ifndef CONFIG_EXAMPLE_A2DP_SINK_OUTPUT_INTERNAL_DAC
+i2s_chan_handle_t tx_chan = NULL;
+#endif
 
 /********************************
  * STATIC FUNCTION DEFINITIONS
@@ -162,13 +171,10 @@ static void bt_av_notify_evt_handler(uint8_t event_id, esp_avrc_rn_param_t *even
 
 void bt_i2s_driver_install(void)
 {
+#ifdef CONFIG_EXAMPLE_A2DP_SINK_OUTPUT_INTERNAL_DAC
     /* I2S configuration parameters */
     i2s_config_t i2s_config = {
-#ifdef CONFIG_EXAMPLE_A2DP_SINK_OUTPUT_INTERNAL_DAC
         .mode = I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN,
-#else
-        .mode = I2S_MODE_MASTER | I2S_MODE_TX,              /* only TX */
-#endif
         .sample_rate = 44100,
         .bits_per_sample = 16,
         .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,       /* 2-channels */
@@ -176,29 +182,51 @@ void bt_i2s_driver_install(void)
         .dma_buf_count = 6,
         .dma_buf_len = 60,
         .intr_alloc_flags = 0,                              /* default interrupt priority */
-        .tx_desc_auto_clear = true,                         /* auto clear tx descriptor on underflow */
-        .use_apll = true
+        .tx_desc_auto_clear = true                          /* auto clear tx descriptor on underflow */
     };
 
     /* enable I2S */
-    i2s_driver_install(0, &i2s_config, 0, NULL);
-#ifdef CONFIG_EXAMPLE_A2DP_SINK_OUTPUT_INTERNAL_DAC
-    i2s_set_dac_mode(I2S_DAC_CHANNEL_BOTH_EN);
-    i2s_set_pin(0, NULL);
+    ESP_ERROR_CHECK(i2s_driver_install(0, &i2s_config, 0, NULL));
+    ESP_ERROR_CHECK(i2s_set_dac_mode(I2S_DAC_CHANNEL_BOTH_EN));
+    ESP_ERROR_CHECK(i2s_set_pin(0, NULL));
 #else
-    i2s_pin_config_t pin_config = {
-        .bck_io_num = CONFIG_EXAMPLE_I2S_BCK_PIN,
-        .ws_io_num = CONFIG_EXAMPLE_I2S_LRCK_PIN,
-        .data_out_num = CONFIG_EXAMPLE_I2S_DATA_PIN,
-        .data_in_num = -1                                   /* not used */
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+    chan_cfg.auto_clear = true;
+    i2s_std_config_t std_cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(44100),
+        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .gpio_cfg = {
+            .mclk = I2S_GPIO_UNUSED,
+            .bclk = CONFIG_EXAMPLE_I2S_BCK_PIN,
+            .ws = CONFIG_EXAMPLE_I2S_LRCK_PIN,
+            .dout = CONFIG_EXAMPLE_I2S_DATA_PIN,
+            .din = I2S_GPIO_UNUSED,
+            .invert_flags = {
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv = false,
+            },
+        },
     };
-    i2s_set_pin(0, &pin_config);
+#ifdef CONFIG_SOC_I2S_SUPPORTS_APLL
+    /* use APLL for high precision clock */
+    std_cfg.clk_cfg.clk_src = I2S_CLK_SRC_APLL;
+#endif
+    /* enable I2S */
+    ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &tx_chan, NULL));
+    ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &std_cfg));
+    ESP_ERROR_CHECK(i2s_channel_enable(tx_chan));
 #endif
 }
 
 void bt_i2s_driver_uninstall(void)
 {
+#ifdef CONFIG_EXAMPLE_A2DP_SINK_OUTPUT_INTERNAL_DAC
     i2s_driver_uninstall(0);
+#else
+    ESP_ERROR_CHECK(i2s_channel_disable(tx_chan));
+    ESP_ERROR_CHECK(i2s_del_channel(tx_chan));
+#endif
 }
 
 static void volume_set_by_controller(uint8_t volume)
@@ -235,7 +263,7 @@ static void volume_change_simulation(void *arg)
 
     for (;;) {
         /* volume up locally every 10 seconds */
-        vTaskDelay(10000 / portTICK_RATE_MS);
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
         uint8_t volume = (bt_app_get_volume() + 5) & 0x7f;
         volume_set_by_local_host(volume);
     }
@@ -305,6 +333,7 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
                      a2d->audio_cfg.mcc.cie.sbc[3]);
 
             int sample_rate = 16000;
+            int ch_count = 2;
             char oct0 = a2d->audio_cfg.mcc.cie.sbc[0];
             if (oct0 & (0x01 << 6)) {
                 sample_rate = 32000;
@@ -313,9 +342,29 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
             } else if (oct0 & (0x01 << 4)) {
                 sample_rate = 48000;
             }
-            i2s_set_clk(0, sample_rate, 16, 2);
 
-            ESP_LOGI(BT_AV_TAG, "Audio player configured, sample rate: %d Hz", sample_rate);
+            if (oct0 & (0x01 << 3)) {
+                ch_count = 1;
+            }
+        #ifdef CONFIG_EXAMPLE_A2DP_SINK_OUTPUT_INTERNAL_DAC
+            i2s_set_clk(0, sample_rate, 16, ch_count);
+        #else
+            i2s_channel_disable(tx_chan);
+            i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate);
+#ifdef CONFIG_SOC_I2S_SUPPORTS_APLL
+            clk_cfg.clk_src = I2S_CLK_SRC_APLL;
+#endif
+            i2s_std_slot_config_t slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, ch_count);
+            i2s_channel_reconfig_std_clock(tx_chan, &clk_cfg);
+            i2s_channel_reconfig_std_slot(tx_chan, &slot_cfg);
+            i2s_channel_enable(tx_chan);
+        #endif
+            ESP_LOGD(BT_AV_TAG, "Configure audio player: %x-%x-%x-%x",
+                     a2d->audio_cfg.mcc.cie.sbc[0],
+                     a2d->audio_cfg.mcc.cie.sbc[1],
+                     a2d->audio_cfg.mcc.cie.sbc[2],
+                     a2d->audio_cfg.mcc.cie.sbc[3]);
+            ESP_LOGI(BT_AV_TAG, "Audio player configured, sample rate: %d", sample_rate);
         }
         break;
     }
@@ -327,6 +376,35 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
         } else {
             ESP_LOGD(BT_AV_TAG, "A2DP PROF STATE: Deinit Complete");
         }
+        break;
+    }
+    /* When protocol service capabilities configured, this event comes */
+    case ESP_A2D_SNK_PSC_CFG_EVT: {
+        a2d = (esp_a2d_cb_param_t *)(p_param);
+        ESP_LOGI(BT_AV_TAG, "protocol service capabilities configured: 0x%x ", a2d->a2d_psc_cfg_stat.psc_mask);
+        if (a2d->a2d_psc_cfg_stat.psc_mask & ESP_A2D_PSC_DELAY_RPT) {
+            ESP_LOGI(BT_AV_TAG, "Peer device support delay reporting");
+        } else {
+            ESP_LOGI(BT_AV_TAG, "Peer device unsupport delay reporting");
+        }
+        break;
+    }
+    /* when set delay value completed, this event comes */
+    case ESP_A2D_SNK_SET_DELAY_VALUE_EVT: {
+        a2d = (esp_a2d_cb_param_t *)(p_param);
+        if (ESP_A2D_SET_INVALID_PARAMS == a2d->a2d_set_delay_value_stat.set_state) {
+            ESP_LOGI(BT_AV_TAG, "Set delay report value: fail");
+        } else {
+            ESP_LOGI(BT_AV_TAG, "Set delay report value: success, delay_value: %u * 1/10 ms", a2d->a2d_set_delay_value_stat.delay_value);
+        }
+        break;
+    }
+    /* when get delay value completed, this event comes */
+    case ESP_A2D_SNK_GET_DELAY_VALUE_EVT: {
+        a2d = (esp_a2d_cb_param_t *)(p_param);
+        ESP_LOGI(BT_AV_TAG, "Get delay report value: delay_value: %u * 1/10 ms", a2d->a2d_get_delay_value_stat.delay_value);
+        /* Default delay value plus delay caused by application layer */
+        esp_a2d_sink_set_delay_value(a2d->a2d_get_delay_value_stat.delay_value + APP_DELAY_VALUE);
         break;
     }
     /* others */
@@ -482,7 +560,10 @@ void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
     case ESP_A2D_CONNECTION_STATE_EVT:
     case ESP_A2D_AUDIO_STATE_EVT:
     case ESP_A2D_AUDIO_CFG_EVT:
-    case ESP_A2D_PROF_STATE_EVT: {
+    case ESP_A2D_PROF_STATE_EVT:
+    case ESP_A2D_SNK_PSC_CFG_EVT:
+    case ESP_A2D_SNK_SET_DELAY_VALUE_EVT:
+    case ESP_A2D_SNK_GET_DELAY_VALUE_EVT: {
         bt_app_work_dispatch(bt_av_hdl_a2d_evt, event, param, sizeof(esp_a2d_cb_param_t), NULL);
         break;
     }

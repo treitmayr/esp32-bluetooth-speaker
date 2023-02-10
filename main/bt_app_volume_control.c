@@ -18,6 +18,7 @@
 #include "bt_app_volume_control.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_random.h"
 
 
 #define NELEMS(x) (sizeof(x) / sizeof((x)[0]))

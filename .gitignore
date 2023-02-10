@@ -7,3 +7,4 @@ data/wifi_credentials.txt
 /sdkconfig.*.old
 *.sav
 copy-to-update-server.*
+dependencies.lock

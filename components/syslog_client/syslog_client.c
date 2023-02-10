@@ -378,7 +378,7 @@ static bool fetch_line_buffer(char **task, char **msg)
 static int syslog_vprintf(const char *str, va_list l)
 {
     int res = -1;
-	char *cur_task = pcTaskGetTaskName(NULL);
+	char *cur_task = pcTaskGetName(NULL);
     bool in_conflicting_task = is_conflicting_task(cur_task);
 
     if (!in_conflicting_task)
@@ -441,7 +441,7 @@ static int syslog_vprintf(const char *str, va_list l)
 static int raw_vprintf(const char *str, va_list l)
 {
     int res = -1;
-	char *cur_task = pcTaskGetTaskName(NULL);
+	char *cur_task = pcTaskGetName(NULL);
 
     if (!is_conflicting_task(cur_task))
     {
@@ -490,7 +490,7 @@ static int buffering_vprintf(const char *str, va_list l)
 #else
     char *buffer= (char *)malloc(MAX_PAYLOAD_LEN);
 #endif
-	char *cur_task = pcTaskGetTaskName(NULL);
+	char *cur_task = pcTaskGetName(NULL);
 
 	res = vsnprintf((char *)buffer, MAX_PAYLOAD_LEN, str, l);
     if (res >= 0)

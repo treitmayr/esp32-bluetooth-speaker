@@ -3,6 +3,7 @@
 #include "string.h"
 #include "freertos/FreeRTOS.h"
 #include "esp_system.h"
+#include "esp_mac.h"
 #include "esp_event.h"
 #include "esp_attr.h"
 #include "esp_log.h"
@@ -25,7 +26,7 @@ extern const uint8_t wifi_credentials_end[] asm("_binary_" CONFIG_WIFI_HELPER_CR
 
 static char *wifi_hostname = NULL;
 static esp_netif_t *sta_netif;
-static xSemaphoreHandle s_semph_get_ip_addrs;
+static SemaphoreHandle_t s_semph_get_ip_addrs;
 bool credentials_set;
 
 
@@ -153,7 +154,6 @@ static void wifi_event_handler_start(void* arg, esp_event_base_t event_base,
     {
         if (event_id == WIFI_EVENT_STA_START)
         {
-            tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, wifi_hostname);
             esp_wifi_connect();
         }
     }
@@ -167,13 +167,16 @@ static void wifi_event_handler_reconnect(void* arg, esp_event_base_t event_base,
     {
         if (event_id == WIFI_EVENT_STA_DISCONNECTED)
         {
+            const char *note = "";
             bool *credentials_set = (bool *) arg;
             if (!*credentials_set)
             {
                 /* if authentication fails, try to reauthenticate with updated credentials */
                 set_wifi_credentials();
                 *credentials_set = true;
+                note = " with updated credentials";
             }
+            ESP_LOGI(TAG, "WIFI disconnected, reconnecting%s...", note);
             esp_wifi_connect();
         }
     }
@@ -210,6 +213,7 @@ bool wifi_start(const char* hostname, const uint32_t conn_timeout_ms)
     ESP_ERROR_CHECK(esp_netif_init());
     sta_netif = esp_netif_create_default_wifi_sta();
     assert(sta_netif);
+    ESP_ERROR_CHECK(esp_netif_set_hostname(sta_netif, wifi_hostname));
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -236,7 +240,7 @@ bool wifi_start(const char* hostname, const uint32_t conn_timeout_ms)
 
     ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_START,
                                                  wifi_event_handler_start));
-    xSemaphoreHandle semph_copy = s_semph_get_ip_addrs;
+    SemaphoreHandle_t semph_copy = s_semph_get_ip_addrs;
     s_semph_get_ip_addrs = NULL;
     vSemaphoreDelete(semph_copy);
     credentials_set = true;

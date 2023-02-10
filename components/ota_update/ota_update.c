@@ -173,12 +173,15 @@ static bool perform_ota_update(const char *ota_url)
         if (!last_modified_loc || (strcmp(last_modified_rem, last_modified_loc) != 0))
         {
             /* perform actual update */
-            esp_http_client_config_t config = {
+            esp_http_client_config_t client_config = {
                 .url = ota_url,
                 .event_handler = _http_event_handler_update,
                 .keep_alive_enable = true,
             };
-            esp_err_t ret = esp_https_ota(&config);
+            esp_https_ota_config_t ota_config = {
+                .http_config = &client_config,
+            };
+            esp_err_t ret = esp_https_ota(&ota_config);
 
             if (ret == ESP_OK)
             {
