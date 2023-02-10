@@ -36,13 +36,13 @@
 
 #define NOISE_SAMPLE_COUNT 2000
 
-static const char *TAG = "VOLCTL";
+static const char TAG[] = "VOLCTL";
 
 static uint16_t gain_presets[VOLUME_LEVELS];
 static int16_t noise[NOISE_SAMPLE_COUNT];
 
 /* if the volume is not set by host, use this volume. */
-int32_t volume = 0;
+static int32_t volume = 0;
 
 
 void generate_triangular_pdf_noise()

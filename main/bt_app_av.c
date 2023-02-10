@@ -40,6 +40,7 @@
 #define APP_RC_CT_TL_RN_TRACK_CHANGE     (2)
 #define APP_RC_CT_TL_RN_PLAYBACK_CHANGE  (3)
 #define APP_RC_CT_TL_RN_PLAY_POS_CHANGE  (4)
+#define APP_RC_CT_TL_RN_VOLUME_CHANGE    (5)
 
 /* Application layer causes delay value */
 #define APP_DELAY_VALUE                  50  // 5ms
@@ -145,6 +146,30 @@ static void bt_av_play_pos_changed(void)
     }
 }
 
+static void bt_av_volume_change(uint8_t volume, bool initial)
+{
+    bool cmd_supported = esp_avrc_rn_evt_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_TEST,
+                                                            &s_avrc_peer_rn_cap,
+                                                            ESP_AVRC_RN_VOLUME_CHANGE);
+    if (initial)
+    {
+        ESP_LOGI(BT_RC_CT_TAG, "Controller will%s report volume changes",
+                 cmd_supported ? "" : " not");
+        /* switch to maximum volume, assuming the volume will be
+           changed on the device itself */
+        volume_set_by_local_host(cmd_supported ? 0x20 : 0x7f);
+    }
+    else
+    {
+        /* register notification if peer support the event_id */
+        if (cmd_supported)
+        {
+            esp_avrc_ct_send_register_notification_cmd(APP_RC_CT_TL_RN_VOLUME_CHANGE,
+                                                       ESP_AVRC_RN_VOLUME_CHANGE, 0);
+        }
+    }
+}
+
 static void bt_av_notify_evt_handler(uint8_t event_id, esp_avrc_rn_param_t *event_parameter)
 {
     switch (event_id) {
@@ -161,6 +186,12 @@ static void bt_av_notify_evt_handler(uint8_t event_id, esp_avrc_rn_param_t *even
     case ESP_AVRC_RN_PLAY_POS_CHANGED:
         ESP_LOGD(BT_AV_TAG, "Play position changed: %d ms", event_parameter->play_pos);
         bt_av_play_pos_changed();
+        break;
+    /* when volume changes, this event comes */
+    case ESP_AVRC_RN_VOLUME_CHANGE:
+        const uint8_t vol = event_parameter->volume;
+        ESP_LOGI(BT_RC_CT_TAG, "Volume change: %d", vol);
+        bt_av_volume_change(vol, false);
         break;
     /* others */
     default:
@@ -232,15 +263,6 @@ void bt_i2s_driver_uninstall(void)
 static void volume_set_by_controller(uint8_t volume)
 {
     bt_app_set_volume(volume);
-/*
-    if (s_volume_notify) {
-        // respond with the new volume
-        esp_avrc_rn_param_t rn_param;
-        rn_param.volume = volume;
-        esp_avrc_tg_send_rn_rsp(ESP_AVRC_RN_VOLUME_CHANGE, ESP_AVRC_RN_RSP_CHANGED, &rn_param);
-        s_volume_notify = false;
-    }
-*/
 }
 
 static void volume_set_by_local_host(uint8_t volume)
@@ -290,22 +312,6 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
             esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
             bt_i2s_task_start_up();
         } else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTING) {
-            /* FIXME: Currently I know no other way of fixing initial volume: */
-            const static uint8_t cellphones[][6] = {
-                {0xb4, 0x9d, 0x0b, 0x85, 0x40, 0x3f},
-                {0x4c, 0xe0, 0xdb, 0x81, 0xd3, 0xed},
-                {0xe4, 0x84, 0xd3, 0x12, 0xba, 0xb2}
-            };
-            if ((memcmp(bda, cellphones[0], 6) == 0) ||
-                (memcmp(bda, cellphones[1], 6) == 0) ||
-                (memcmp(bda, cellphones[2], 6) == 0))
-            {
-                bt_app_set_volume(0x7f);
-            }
-            else
-            {
-                bt_app_set_volume(0x20);
-            }
             bt_i2s_driver_install();
         }
         break;
@@ -430,11 +436,11 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
         if (rc->conn_stat.connected) {
             /* get remote supported event_ids of peer AVRCP Target */
             esp_avrc_ct_send_get_rn_capabilities_cmd(APP_RC_CT_TL_GET_CAPS);
-            /* query remote volume
-            esp_avrc_ct_send_register_notification_cmd(1, ESP_AVRC_RN_VOLUME_CHANGE, 0); */
         } else {
             /* clear peer notification capability record */
             s_avrc_peer_rn_cap.bits = 0;
+            /* switch back to conservative volume */
+            bt_app_set_volume(0x20);
         }
         break;
     }
@@ -453,10 +459,6 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
     case ESP_AVRC_CT_CHANGE_NOTIFY_EVT: {
         ESP_LOGD(BT_RC_CT_TAG, "AVRC event notification: %d", rc->change_ntf.event_id);
         bt_av_notify_evt_handler(rc->change_ntf.event_id, &rc->change_ntf.event_parameter);
-        if (rc->change_ntf.event_id == ESP_AVRC_RN_VOLUME_CHANGE) {
-            int volume = rc->change_ntf.event_parameter.volume;
-            ESP_LOGD(BT_RC_CT_TAG, "      volume %d", volume);
-        }
         break;
     }
     /* when feature of remote device indicated, this event comes */
@@ -472,6 +474,7 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param)
         bt_av_new_track();
         bt_av_playback_changed();
         bt_av_play_pos_changed();
+        bt_av_volume_change(0, true);
         break;
     }
     /* others */
@@ -526,7 +529,7 @@ static void bt_av_hdl_avrc_tg_evt(uint16_t event, void *p_param)
         volume_set_by_controller(rc->set_abs_vol.volume);
         break;
     }
-    /* when notification registered, this event comes */
+    /* when notification registered (see bt_av_hdl_stack_evt() (main.c)), this event comes */
     case ESP_AVRC_TG_REGISTER_NOTIFICATION_EVT: {
         ESP_LOGI(BT_RC_TG_TAG, "AVRC register event notification: %d, param: 0x%x", rc->reg_ntf.event_id, rc->reg_ntf.event_parameter);
         if (rc->reg_ntf.event_id == ESP_AVRC_RN_VOLUME_CHANGE) {
